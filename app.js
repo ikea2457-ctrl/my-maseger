@@ -2,8 +2,9 @@ let currentUser = JSON.parse(localStorage.getItem('chat_user')) || null;
 let currentChat = 'global';
 let unsubscribeListener = null;
 let typingTimeout = null;
-let authMode = 'login'; // 'login' или 'register'
+let authMode = 'login';
 let replyingToMessage = null;
+let allUsers = [];
 
 // Переменные WebRTC & Медиа
 let peerConnection = null;
@@ -18,7 +19,6 @@ let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
 
-// Звуковые эффекты
 const sendSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
 
 const servers = {
@@ -27,7 +27,6 @@ const servers = {
   ]
 };
 
-// Простой хэш пароля для базовой защиты
 async function hashPassword(password) {
   const msgBuffer = new TextEncoder().encode(password);
   const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -35,7 +34,6 @@ async function hashPassword(password) {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Рингтон звонка
 const ringtone = {
   audio: new Audio('https://assets.mixkit.co/active_storage/sfx/1358/1358-preview.mp3'),
   vibrateInterval: null,
@@ -138,6 +136,52 @@ function renderAvatar(avatarData, targetElement) {
   }
 }
 
+// ==========================================
+// СМЕНА НИКА И АВАТАРКИ
+// ==========================================
+function openProfileModal() {
+  document.getElementById('edit-display-name').value = currentUser.displayName;
+  document.getElementById('profile-modal').classList.add('active');
+}
+
+function closeProfileModal() {
+  document.getElementById('profile-modal').classList.remove('active');
+}
+
+async function saveProfileChanges() {
+  const newName = document.getElementById('edit-display-name').value.trim();
+  const emojiAvatar = document.getElementById('edit-avatar-emoji').value.trim();
+  const avatarFile = document.getElementById('edit-avatar-file').files[0];
+
+  if (!newName) return alert("Никнейм не может быть пустым!");
+
+  let newAvatar = currentUser.avatar;
+
+  if (emojiAvatar) {
+    newAvatar = emojiAvatar;
+  } else if (avatarFile) {
+    if (avatarFile.size > 1 * 1024 * 1024) return alert("Аватарка слишком большая! До 1 МБ.");
+    newAvatar = await new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result);
+      reader.readAsDataURL(avatarFile);
+    });
+  }
+
+  currentUser.displayName = newName;
+  currentUser.avatar = newAvatar;
+  localStorage.setItem('chat_user', JSON.stringify(currentUser));
+
+  await db.collection('accounts').doc(currentUser.username).update({
+    displayName: newName,
+    avatar: newAvatar
+  });
+
+  updateUserPresence();
+  showChat();
+  closeProfileModal();
+}
+
 function showChat() {
   document.getElementById('auth-screen').classList.remove('active');
   document.getElementById('chat-screen').classList.add('active');
@@ -229,8 +273,75 @@ function getChatId() {
 }
 
 // ==========================================
-// ОТВЕТЫ (ЦИТИРОВАНИЕ) И ПОИСК
+// УМНЫЙ СПИСОК ДИАЛОГОВ И ПОИСК ЮЗЕРОВ
 // ==========================================
+async function showDirectsList() {
+  document.getElementById('chats-list').style.display = 'block';
+  document.getElementById('messages-container').style.display = 'none';
+  document.getElementById('input-area').style.display = 'none';
+
+  const snapshot = await db.collection('users').get();
+  allUsers = [];
+  snapshot.forEach(doc => {
+    if (doc.id !== currentUser.username) {
+      allUsers.push(doc.data());
+    }
+  });
+
+  // Получаем уникальных пользователей с кем уже были переписки
+  const msgSnap = await db.collection('messages').get();
+  const activeDialogs = new Set();
+  
+  msgSnap.forEach(doc => {
+    const data = doc.data();
+    if (data.chatId && data.chatId.includes(currentUser.username)) {
+      const parts = data.chatId.split('_');
+      const partner = parts.find(p => p !== currentUser.username);
+      if (partner) activeDialogs.add(partner);
+    }
+  });
+
+  renderUsersList(allUsers.filter(u => activeDialogs.has(u.name)));
+}
+
+function filterUsersList() {
+  const query = document.getElementById('user-search-input').value.toLowerCase().trim();
+  if (!query) {
+    showDirectsList();
+    return;
+  }
+  const filtered = allUsers.filter(u => 
+    u.name.toLowerCase().includes(query) || 
+    (u.displayName && u.displayName.toLowerCase().includes(query))
+  );
+  renderUsersList(filtered);
+}
+
+function renderUsersList(users) {
+  const usersBox = document.getElementById('users-container');
+  usersBox.innerHTML = '';
+
+  if (users.length === 0) {
+    usersBox.innerHTML = '<div style="color:#aaa; text-align:center; padding:20px; font-size:13px;">Диалогов нет. Воспользуйся поиском выше!</div>';
+    return;
+  }
+
+  users.forEach(user => {
+    const item = document.createElement('div');
+    item.className = 'chat-item';
+    item.onclick = () => openDirectChat(user.name);
+    item.innerHTML = `
+      <div class="chat-avatar" id="list-avatar-${user.name}"></div>
+      <div class="chat-info">
+        <div class="chat-name">${user.displayName || user.name}</div>
+        <div class="chat-last-msg">@${user.name}</div>
+      </div>
+    `;
+    usersBox.appendChild(item);
+    renderAvatar(user.avatar, document.getElementById(`list-avatar-${user.name}`));
+  });
+}
+
 function setReply(msgId, author, text) {
   replyingToMessage = { id: msgId, author, text };
   document.getElementById('reply-preview-text').innerText = `Ответ на ${author}: ${text.substring(0, 30)}...`;
@@ -256,9 +367,6 @@ function searchMessages() {
   });
 }
 
-// ==========================================
-// ПЕЧАТАЕТ И ЗАПИСЬ
-// ==========================================
 function handleTyping() {
   const chatId = getChatId();
   db.collection('typing').doc(`${chatId}_${currentUser.username}`).set({
@@ -495,39 +603,7 @@ function handleKeyPress(e) {
   if (e.key === 'Enter') sendMessage();
 }
 
-function showDirectsList() {
-  document.getElementById('chats-list').style.display = 'block';
-  document.getElementById('messages-container').style.display = 'none';
-  document.getElementById('input-area').style.display = 'none';
-
-  const list = document.getElementById('chats-list');
-  list.innerHTML = `<div id="users-container"></div>`;
-
-  db.collection('users').get().then(snapshot => {
-    const usersBox = document.getElementById('users-container');
-    snapshot.forEach(doc => {
-      const user = doc.data();
-      if (user.name && user.name !== currentUser.username) {
-        const item = document.createElement('div');
-        item.className = 'chat-item';
-        item.onclick = () => openDirectChat(user.name);
-        item.innerHTML = `
-          <div class="chat-avatar" id="list-avatar-${user.name}"></div>
-          <div class="chat-info">
-            <div class="chat-name">${user.displayName || user.name}</div>
-            <div class="chat-last-msg">@${user.name}</div>
-          </div>
-        `;
-        usersBox.appendChild(item);
-        renderAvatar(user.avatar, document.getElementById(`list-avatar-${user.name}`));
-      }
-    });
-  });
-}
-
-// ==========================================
-// WEBRTC ВИДЕОЗВОНКИ
-// ==========================================
+// WebRTC Звонки
 async function setupMedia() {
   localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
   remoteStream = new MediaStream();
@@ -550,8 +626,7 @@ function toggleMic() {
     if (audioTrack) {
       isMicOn = !isMicOn;
       audioTrack.enabled = isMicOn;
-      const btn = document.getElementById('mic-btn');
-      btn.innerText = isMicOn ? '🎤' : '🔇';
+      document.getElementById('mic-btn').innerText = isMicOn ? '🎤' : '🔇';
     }
   }
 }
@@ -562,8 +637,7 @@ function toggleCam() {
     if (videoTrack) {
       isCamOn = !isCamOn;
       videoTrack.enabled = isCamOn;
-      const btn = document.getElementById('cam-btn');
-      btn.innerText = isCamOn ? '📷' : '🚫';
+      document.getElementById('cam-btn').innerText = isCamOn ? '📷' : '🚫';
     }
   }
 }

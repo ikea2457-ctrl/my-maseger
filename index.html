@@ -17,15 +17,14 @@
         <button class="btn" id="btn-show-reg" onclick="toggleAuthMode('register')" style="flex:1; background:#334455;">Регистрация</button>
       </div>
 
-      <input type="text" id="auth-username" class="auth-input" placeholder="Никнейм..." maxlength="20">
+      <input type="text" id="auth-username" class="auth-input" placeholder="Никнейм (@username)..." maxlength="20">
       <input type="password" id="auth-password" class="auth-input" placeholder="Пароль...">
 
-      <!-- Доп. поля для регистрации -->
       <div id="reg-extra-fields" style="display:none;">
-        <input type="text" id="reg-display-name" class="auth-input" placeholder="Отображаемое имя (Кастомный ник)..." maxlength="25">
-        <label style="color:#aaa; font-size:12px; display:block; margin:5px 0;">Аватарка (Загрузить фото или выбери эмодзи):</label>
+        <input type="text" id="reg-display-name" class="auth-input" placeholder="Отображаемое имя..." maxlength="25">
+        <label style="color:#aaa; font-size:12px; display:block; margin:5px 0;">Аватарка (Фото или Эмодзи):</label>
         <input type="file" id="reg-avatar-file" accept="image/*" class="auth-input">
-        <input type="text" id="reg-avatar-emoji" class="auth-input" placeholder="Или введи эмодзи (например: ⚡)" maxlength="2">
+        <input type="text" id="reg-avatar-emoji" class="auth-input" placeholder="Или эмодзи (например: ⚡)" maxlength="2">
       </div>
 
       <button class="btn" id="auth-submit-btn" onclick="handleAuth()">Войти</button>
@@ -66,8 +65,13 @@
       <button class="tab-btn" id="tab-directs" onclick="switchTab('directs')">Личные & Группы</button>
     </div>
 
-    <!-- Список пользователей и групп -->
-    <div class="chats-list" id="chats-list" style="display: none;"></div>
+    <!-- Список пользователей и диалогов -->
+    <div class="chats-list" id="chats-list" style="display: none;">
+      <div style="padding: 10px; background: #17212b;">
+        <input type="text" id="user-search-input" class="chat-input" placeholder="Найти пользователя по нику..." oninput="filterUsersList()">
+      </div>
+      <div id="users-container"></div>
+    </div>
 
     <!-- Сообщения -->
     <div class="chat-messages" id="messages-container"></div>
@@ -87,6 +91,26 @@
       
       <button class="icon-btn" id="voice-btn" onclick="toggleVoiceRecord()" style="color:#5288c1;">🎙️</button>
       <button class="send-btn" onclick="sendMessage()">➤</button>
+    </div>
+  </div>
+
+  <!-- Модалка редактирования профиля -->
+  <div id="profile-modal" class="call-modal" style="background: rgba(0,0,0,0.85); flex-direction:column; justify-content:center; align-items:center;">
+    <div class="auth-box" style="width: 90%; max-width: 350px;">
+      <h3>Настройки Профиля</h3>
+      <label style="color:#aaa; font-size:12px; display:block; margin-top:10px;">Кастомный ник:</label>
+      <input type="text" id="edit-display-name" class="auth-input" maxlength="25">
+      
+      <label style="color:#aaa; font-size:12px; display:block; margin-top:10px;">Новая аватарка (Фото):</label>
+      <input type="file" id="edit-avatar-file" accept="image/*" class="auth-input">
+      
+      <label style="color:#aaa; font-size:12px; display:block; margin-top:5px;">Или Эмодзи-аватар:</label>
+      <input type="text" id="edit-avatar-emoji" class="auth-input" placeholder="Например: 🔥" maxlength="2">
+
+      <div style="display:flex; gap:10px; margin-top:15px;">
+        <button class="btn" style="background:#4caf50;" onclick="saveProfileChanges()">Сохранить</button>
+        <button class="btn" style="background:#e53935;" onclick="closeProfileModal()">Отмена</button>
+      </div>
     </div>
   </div>
 
@@ -124,6 +148,7 @@
     <div class="drawer-menu">
       <div class="menu-item" onclick="openGlobalChat(); toggleMenu();">🌐 Общий чат</div>
       <div class="menu-item" onclick="switchTab('directs'); toggleMenu();">💬 Личные & Группы</div>
+      <div class="menu-item" onclick="openProfileModal(); toggleMenu();">⚙️ Редактировать профиль</div>
       <div class="menu-item" onclick="logout()" style="color:#e53935;">🚪 Выйти</div>
     </div>
   </div>

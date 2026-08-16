@@ -1,5 +1,5 @@
 const firebaseConfig = {
-  apiKey: "AIzaSyD...", // Вставь сюда свой настоящий apiKey
+  apiKey: "AIzaSyBY-r3ZA7b4nhEN_Xy86Uz8_lwlVnyrhoM", // Вставь сюда свой настоящий apiKey
   authDomain: "my-maseger.firebaseapp.com",
   projectId: "my-maseger",
   storageBucket: "my-maseger.appspot.com",

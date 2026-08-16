@@ -1,14 +1,15 @@
-let currentUser = localStorage.getItem('chat_username') || '';
+let currentUser = JSON.parse(localStorage.getItem('chat_user')) || null;
 let currentChat = 'global';
 let unsubscribeListener = null;
 let typingTimeout = null;
+let authMode = 'login'; // 'login' или 'register'
+let replyingToMessage = null;
 
 // Переменные WebRTC & Медиа
 let peerConnection = null;
 let localStream = null;
 let remoteStream = null;
 let activeCallId = null;
-
 let isMicOn = true;
 let isCamOn = true;
 
@@ -17,42 +18,41 @@ let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
 
+// Звуковые эффекты
+const sendSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
+
 const servers = {
   iceServers: [
     { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }
   ]
 };
 
-// ==========================================
-// МОДУЛЬ ЗВУКА И ВИБРАЦИИ ВХОДЯЩЕГО ЗВОНКА
-// ==========================================
+// Простой хэш пароля для базовой защиты
+async function hashPassword(password) {
+  const msgBuffer = new TextEncoder().encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Рингтон звонка
 const ringtone = {
   audio: new Audio('https://assets.mixkit.co/active_storage/sfx/1358/1358-preview.mp3'),
   vibrateInterval: null,
-  
   play() {
     this.audio.loop = true;
     this.audio.currentTime = 0;
-    this.audio.play().catch(e => console.log("Автовоспроизведение заблокировано браузером:", e));
-    
+    this.audio.play().catch(e => console.log(e));
     if ("vibrate" in navigator) {
       navigator.vibrate([1000, 1000]);
-      this.vibrateInterval = setInterval(() => {
-        navigator.vibrate([1000, 1000]);
-      }, 2000);
+      this.vibrateInterval = setInterval(() => navigator.vibrate([1000, 1000]), 2000);
     }
   },
-  
   stop() {
     this.audio.pause();
     this.audio.currentTime = 0;
-    if (this.vibrateInterval) {
-      clearInterval(this.vibrateInterval);
-      this.vibrateInterval = null;
-    }
-    if ("vibrate" in navigator) {
-      navigator.vibrate(0);
-    }
+    if (this.vibrateInterval) clearInterval(this.vibrateInterval);
+    if ("vibrate" in navigator) navigator.vibrate(0);
   }
 };
 
@@ -62,43 +62,90 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-function requestNotificationPermission() {
-  if ("Notification" in window && Notification.permission !== "granted") {
-    Notification.requestPermission();
-  }
+function toggleAuthMode(mode) {
+  authMode = mode;
+  document.getElementById('btn-show-login').style.background = mode === 'login' ? '#5288c1' : '#334455';
+  document.getElementById('btn-show-reg').style.background = mode === 'register' ? '#5288c1' : '#334455';
+  document.getElementById('reg-extra-fields').style.display = mode === 'register' ? 'block' : 'none';
+  document.getElementById('auth-submit-btn').innerText = mode === 'login' ? 'Войти' : 'Зарегистрироваться';
 }
 
-function sendPushNotification(title, body) {
-  if ("Notification" in window && Notification.permission === "granted" && document.hidden) {
-    new Notification(title, { body: body, icon: 'https://cdn-icons-png.flaticon.com/512/906/906377.png' });
-  }
-}
+async function handleAuth() {
+  const username = document.getElementById('auth-username').value.trim().toLowerCase();
+  const password = document.getElementById('auth-password').value.trim();
 
-function login() {
-  const input = document.getElementById('username-input');
-  const val = input.value.trim();
-  if (val) {
-    currentUser = val;
-    localStorage.setItem('chat_username', currentUser);
+  if (!username || !password) return alert("Заполни логин и пароль!");
+
+  const hashedPassword = await hashPassword(password);
+  const userRef = db.collection('accounts').doc(username);
+
+  if (authMode === 'register') {
+    const doc = await userRef.get();
+    if (doc.exists) return alert("Этот никнейм уже занят!");
+
+    const displayName = document.getElementById('reg-display-name').value.trim() || username;
+    const emojiAvatar = document.getElementById('reg-avatar-emoji').value.trim();
+    const avatarFile = document.getElementById('reg-avatar-file').files[0];
+
+    let avatarData = emojiAvatar || '👤';
+
+    if (avatarFile) {
+      if (avatarFile.size > 1 * 1024 * 1024) return alert("Аватарка слишком большая! До 1 МБ.");
+      avatarData = await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.readAsDataURL(avatarFile);
+      });
+    }
+
+    const userData = {
+      username: username,
+      password: hashedPassword,
+      displayName: displayName,
+      avatar: avatarData,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    await userRef.set(userData);
+    currentUser = userData;
+    localStorage.setItem('chat_user', JSON.stringify(currentUser));
+    showChat();
+
+  } else {
+    const doc = await userRef.get();
+    if (!doc.exists) return alert("Пользователь не найден!");
+
+    const data = doc.data();
+    if (data.password !== hashedPassword) return alert("Неверный пароль!");
+
+    currentUser = data;
+    localStorage.setItem('chat_user', JSON.stringify(currentUser));
     showChat();
   }
 }
 
 function logout() {
   ringtone.stop();
-  localStorage.removeItem('chat_username');
+  localStorage.removeItem('chat_user');
   location.reload();
+}
+
+function renderAvatar(avatarData, targetElement) {
+  if (avatarData && avatarData.startsWith('data:image')) {
+    targetElement.innerHTML = `<img src="${avatarData}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`;
+  } else {
+    targetElement.innerText = avatarData || '👤';
+  }
 }
 
 function showChat() {
   document.getElementById('auth-screen').classList.remove('active');
   document.getElementById('chat-screen').classList.add('active');
-  document.getElementById('drawer-username').innerText = currentUser;
-  document.getElementById('user-avatar-letter').innerText = currentUser[0].toUpperCase();
   
-  requestNotificationPermission();
+  document.getElementById('drawer-displayname').innerText = currentUser.displayName;
+  document.getElementById('drawer-username').innerText = `@${currentUser.username}`;
+  renderAvatar(currentUser.avatar, document.getElementById('drawer-avatar-box'));
 
-  // ФИЧА 4: Обновление статуса Онлайн / Last Seen
   updateUserPresence();
   setInterval(updateUserPresence, 30000);
 
@@ -108,8 +155,10 @@ function showChat() {
 }
 
 function updateUserPresence() {
-  db.collection('users').doc(currentUser).set({
-    name: currentUser,
+  db.collection('users').doc(currentUser.username).set({
+    name: currentUser.username,
+    displayName: currentUser.displayName,
+    avatar: currentUser.avatar,
     lastSeen: firebase.firestore.FieldValue.serverTimestamp()
   }, { merge: true });
 }
@@ -134,8 +183,9 @@ function openGlobalChat() {
   currentChat = 'global';
   document.getElementById('chat-title').innerText = "Общий Чат 🌐";
   document.getElementById('chat-subtitle').innerText = "онлайн";
+  document.getElementById('chat-header-avatar').innerText = "🌐";
   document.getElementById('back-btn').style.display = 'none';
-  document.getElementById('call-btn').style.display = 'block'; 
+  document.getElementById('call-btn').style.display = 'block';
   document.getElementById('chats-list').style.display = 'none';
   document.getElementById('messages-container').style.display = 'flex';
   document.getElementById('input-area').style.display = 'flex';
@@ -145,156 +195,74 @@ function openGlobalChat() {
 }
 
 function openDirectChat(targetUser) {
-  if (targetUser === currentUser) return;
+  if (targetUser === currentUser.username) return;
   currentChat = targetUser;
-  document.getElementById('chat-title').innerText = targetUser;
-  document.getElementById('chat-subtitle').innerText = "загрузка статуса...";
   document.getElementById('back-btn').style.display = 'block';
   document.getElementById('call-btn').style.display = 'block';
   document.getElementById('chats-list').style.display = 'none';
   document.getElementById('messages-container').style.display = 'flex';
   document.getElementById('input-area').style.display = 'flex';
   document.getElementById('tabs-bar').style.display = 'none';
-  
-  // ФИЧА 4: Показ статуса онлайн собеседника
+
   db.collection('users').doc(targetUser).onSnapshot(doc => {
-    if (doc.exists && doc.data().lastSeen) {
-      const lastSeenMs = doc.data().lastSeen.toMillis();
-      const diffSec = Math.floor((Date.now() - lastSeenMs) / 1000);
-      document.getElementById('chat-subtitle').innerText = diffSec < 60 ? "онлайн" : `был(а) ${Math.floor(diffSec / 60)} мин. назад`;
-    }
-  });
+    if (doc.exists) {
+      const data = doc.data();
+      document.getElementById('chat-title').innerText = data.displayName || data.name;
+      renderAvatar(data.avatar, document.getElementById('chat-header-avatar'));
 
-  loadMessages();
-  listenForTypingStatus();
-}
-
-// ==========================================
-// ГРУППОВЫЕ ЧАТЫ
-// ==========================================
-async function createGroupChat() {
-  const groupName = prompt("Введи название группы:");
-  if (!groupName) return;
-
-  try {
-    const groupRef = await db.collection('groups').add({
-      name: groupName,
-      createdBy: currentUser,
-      members: [currentUser],
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-
-    alert(`Группа "${groupName}" создана! ID: ${groupRef.id}`);
-    showDirectsList();
-  } catch (err) {
-    alert("Ошибка создания группы: " + err.message);
-  }
-}
-
-async function joinGroupChat() {
-  const groupId = prompt("Введи ID группы для входа:");
-  if (!groupId) return;
-
-  try {
-    const groupRef = db.collection('groups').doc(groupId);
-    const doc = await groupRef.get();
-
-    if (!doc.exists) {
-      return alert("Группа с таким ID не найдена!");
-    }
-
-    await groupRef.update({
-      members: firebase.firestore.FieldValue.arrayUnion(currentUser)
-    });
-
-    alert(`Ты успешно вошел в группу "${doc.data().name}"!`);
-    showDirectsList();
-  } catch (err) {
-    alert("Ошибка входа в группу: " + err.message);
-  }
-}
-
-function openGroupChat(groupId, groupName) {
-  currentChat = `group_${groupId}`;
-  document.getElementById('chat-title').innerText = `👥 ${groupName}`;
-  document.getElementById('chat-subtitle').innerText = `ID: ${groupId}`;
-  document.getElementById('back-btn').style.display = 'block';
-  document.getElementById('call-btn').style.display = 'none';
-  document.getElementById('chats-list').style.display = 'none';
-  document.getElementById('messages-container').style.display = 'flex';
-  document.getElementById('input-area').style.display = 'flex';
-  document.getElementById('tabs-bar').style.display = 'none';
-  loadMessages();
-  listenForTypingStatus();
-}
-
-function showDirectsList() {
-  document.getElementById('chats-list').style.display = 'block';
-  document.getElementById('messages-container').style.display = 'none';
-  document.getElementById('input-area').style.display = 'none';
-
-  const list = document.getElementById('chats-list');
-  list.innerHTML = `
-    <div class="group-actions-bar">
-      <button class="group-btn" onclick="createGroupChat()">+ Создать группу</button>
-      <button class="group-btn" onclick="joinGroupChat()">Войти в группу</button>
-    </div>
-    <div id="groups-container"></div>
-    <div id="users-container"></div>
-  `;
-
-  db.collection('groups').where('members', 'array-contains', currentUser).get().then(snapshot => {
-    const groupsBox = document.getElementById('groups-container');
-    snapshot.forEach(doc => {
-      const group = doc.data();
-      const item = document.createElement('div');
-      item.className = 'chat-item';
-      item.onclick = () => openGroupChat(doc.id, group.name);
-      item.innerHTML = `
-        <div class="chat-avatar">👥</div>
-        <div class="chat-info">
-          <div class="chat-name">${group.name}</div>
-          <div class="chat-last-msg">Групповой чат</div>
-        </div>
-      `;
-      groupsBox.appendChild(item);
-    });
-  });
-
-  db.collection('users').get().then(snapshot => {
-    const usersBox = document.getElementById('users-container');
-    snapshot.forEach(doc => {
-      const user = doc.data();
-      if (user.name && user.name !== currentUser) {
-        const item = document.createElement('div');
-        item.className = 'chat-item';
-        item.onclick = () => openDirectChat(user.name);
-        item.innerHTML = `
-          <div class="chat-avatar">${user.name[0].toUpperCase()}</div>
-          <div class="chat-info">
-            <div class="chat-name">${user.name}</div>
-            <div class="chat-last-msg">Нажми, чтобы открыть ЛС</div>
-          </div>
-        `;
-        usersBox.appendChild(item);
+      if (data.lastSeen) {
+        const lastSeenMs = data.lastSeen.toMillis();
+        const diffSec = Math.floor((Date.now() - lastSeenMs) / 1000);
+        document.getElementById('chat-subtitle').innerText = diffSec < 60 ? "онлайн" : `был(а) ${Math.floor(diffSec / 60)} мин. назад`;
       }
-    });
+    }
   });
+
+  loadMessages();
+  listenForTypingStatus();
 }
 
 function getChatId() {
   if (currentChat === 'global') return 'global';
   if (currentChat.startsWith('group_')) return currentChat;
-  return [currentUser, currentChat].sort().join('_');
+  return [currentUser.username, currentChat].sort().join('_');
 }
 
 // ==========================================
-// ФИЧА 3: Индикатор "Печатает..."
+// ОТВЕТЫ (ЦИТИРОВАНИЕ) И ПОИСК
+// ==========================================
+function setReply(msgId, author, text) {
+  replyingToMessage = { id: msgId, author, text };
+  document.getElementById('reply-preview-text').innerText = `Ответ на ${author}: ${text.substring(0, 30)}...`;
+  document.getElementById('reply-preview').style.display = 'flex';
+}
+
+function cancelReply() {
+  replyingToMessage = null;
+  document.getElementById('reply-preview').style.display = 'none';
+}
+
+function toggleSearch() {
+  const bar = document.getElementById('search-bar');
+  bar.style.display = bar.style.display === 'none' ? 'block' : 'none';
+}
+
+function searchMessages() {
+  const query = document.getElementById('search-input').value.toLowerCase();
+  const msgs = document.querySelectorAll('.msg');
+  msgs.forEach(m => {
+    const text = m.innerText.toLowerCase();
+    m.style.display = text.includes(query) ? 'flex' : 'none';
+  });
+}
+
+// ==========================================
+// ПЕЧАТАЕТ И ЗАПИСЬ
 // ==========================================
 function handleTyping() {
   const chatId = getChatId();
-  db.collection('typing').doc(`${chatId}_${currentUser}`).set({
-    user: currentUser,
+  db.collection('typing').doc(`${chatId}_${currentUser.username}`).set({
+    user: currentUser.displayName,
     chatId: chatId,
     isTyping: true,
     timestamp: Date.now()
@@ -302,7 +270,7 @@ function handleTyping() {
 
   clearTimeout(typingTimeout);
   typingTimeout = setTimeout(() => {
-    db.collection('typing').doc(`${chatId}_${currentUser}`).set({ isTyping: false });
+    db.collection('typing').doc(`${chatId}_${currentUser.username}`).set({ isTyping: false });
   }, 2000);
 }
 
@@ -312,7 +280,7 @@ function listenForTypingStatus() {
     let typers = [];
     snapshot.forEach(doc => {
       const data = doc.data();
-      if (data.user !== currentUser && data.isTyping && (Date.now() - data.timestamp < 3000)) {
+      if (data.user !== currentUser.displayName && data.isTyping && (Date.now() - data.timestamp < 3000)) {
         typers.push(data.user);
       }
     });
@@ -327,9 +295,6 @@ function listenForTypingStatus() {
   });
 }
 
-// ==========================================
-// ФИЧА 1 & 5: Голосовые сообщения и Картинки
-// ==========================================
 async function toggleVoiceRecord() {
   const btn = document.getElementById('voice-btn');
   if (!isRecording) {
@@ -347,7 +312,9 @@ async function toggleVoiceRecord() {
           db.collection('messages').add({
             chatId: getChatId(),
             audio: reader.result,
-            author: currentUser,
+            author: currentUser.username,
+            displayName: currentUser.displayName,
+            avatar: currentUser.avatar,
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
           });
         };
@@ -370,38 +337,34 @@ function sendImage(e) {
   const file = e.target.files[0];
   if (!file) return;
 
-  if (file.size > 2 * 1024 * 1024) {
-    return alert("Файл слишком большой! Выбери фото до 2MB.");
-  }
+  if (file.size > 2 * 1024 * 1024) return alert("Выбери фото до 2MB.");
 
   const reader = new FileReader();
   reader.onload = function(event) {
     db.collection('messages').add({
       chatId: getChatId(),
       image: event.target.result,
-      author: currentUser,
+      author: currentUser.username,
+      displayName: currentUser.displayName,
+      avatar: currentUser.avatar,
       timestamp: firebase.firestore.FieldValue.serverTimestamp()
     });
   };
   reader.readAsDataURL(file);
 }
 
-// ==========================================
-// ФИЧА 2: Реакции на сообщения
-// ==========================================
 function addReaction(msgId, emoji) {
   const msgRef = db.collection('messages').doc(msgId);
   db.runTransaction(async transaction => {
     const doc = await transaction.get(msgRef);
     if (!doc.exists) return;
-    
     let reactions = doc.data().reactions || {};
     if (!reactions[emoji]) reactions[emoji] = [];
 
-    if (reactions[emoji].includes(currentUser)) {
-      reactions[emoji] = reactions[emoji].filter(u => u !== currentUser);
+    if (reactions[emoji].includes(currentUser.username)) {
+      reactions[emoji] = reactions[emoji].filter(u => u !== currentUser.username);
     } else {
-      reactions[emoji].push(currentUser);
+      reactions[emoji].push(currentUser.username);
     }
 
     transaction.update(msgRef, { reactions: reactions });
@@ -412,21 +375,11 @@ function loadMessages() {
   if (unsubscribeListener) unsubscribeListener();
 
   const targetChatId = getChatId();
-  let initialLoad = true;
 
   unsubscribeListener = db.collection('messages')
     .onSnapshot(snapshot => {
       const container = document.getElementById('messages-container');
       let messages = [];
-
-      snapshot.docChanges().forEach(change => {
-        if (change.type === 'added' && !initialLoad) {
-          const data = change.doc.data();
-          if (data.author !== currentUser && (data.chatId === targetChatId || (!data.chatId && targetChatId === 'global'))) {
-            sendPushNotification(`Сообщение от ${data.author}`, data.text || "Медиафайл");
-          }
-        }
-      });
 
       snapshot.forEach(doc => {
         const data = doc.data();
@@ -435,10 +388,13 @@ function loadMessages() {
         if (msgChatId === targetChatId) {
           messages.push({
             id: doc.id,
-            author: data.author || 'Аноним',
+            author: data.author,
+            displayName: data.displayName || data.author,
+            avatar: data.avatar || '👤',
             text: data.text || '',
             image: data.image || null,
             audio: data.audio || null,
+            replyTo: data.replyTo || null,
             reactions: data.reactions || {},
             timestamp: data.timestamp ? data.timestamp.toMillis() : Date.now()
           });
@@ -449,11 +405,15 @@ function loadMessages() {
 
       container.innerHTML = '';
       messages.forEach(data => {
-        const isMe = data.author === currentUser;
+        const isMe = data.author === currentUser.username;
         const msgDiv = document.createElement('div');
         msgDiv.className = `msg ${isMe ? 'outgoing' : 'incoming'}`;
         
-        // Формирование содержимого (Текст / Картинка / Голосовуха)
+        let replyHtml = '';
+        if (data.replyTo) {
+          replyHtml = `<div style="background:#1b2734; border-left:2px solid #5288c1; padding:2px 5px; font-size:10px; margin-bottom:4px; opacity:0.8;"><b>${data.replyTo.author}</b>: ${data.replyTo.text}</div>`;
+        }
+
         let contentHtml = '';
         if (data.image) {
           contentHtml = `<img src="${data.image}" style="max-width:100%; border-radius:10px; margin-top:5px;">`;
@@ -463,7 +423,6 @@ function loadMessages() {
           contentHtml = `<span>${data.text}</span>`;
         }
 
-        // Рендер Реакций
         let reactionsHtml = '<div style="display:flex; gap:4px; margin-top:4px;">';
         ['👍', '❤️', '🔥', '💩'].forEach(emoji => {
           const count = data.reactions[emoji] ? data.reactions[emoji].length : 0;
@@ -476,18 +435,27 @@ function loadMessages() {
         reactionsHtml += '</div>';
 
         msgDiv.innerHTML = `
-          ${!isMe ? `<div class="msg-author" onclick="openDirectChat('${data.author}')">${data.author}</div>` : ''}
+          ${!isMe ? `<div style="display:flex; align-items:center; gap:5px; margin-bottom:3px;">
+                      <span style="width:20px; height:20px; display:inline-block;" id="avatar-${data.id}"></span>
+                      <div class="msg-author" onclick="openDirectChat('${data.author}')">${data.displayName}</div>
+                     </div>` : ''}
+          ${replyHtml}
           <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
             <div style="flex:1;">${contentHtml}</div>
-            <button onclick="deleteMessage('${data.id}')" style="background:none; border:none; color:#e53935; cursor:pointer; font-size:12px; opacity:0.6;">🗑️</button>
+            <button onclick="setReply('${data.id}', '${data.displayName}', '${data.text || 'Медиа'}')" style="background:none; border:none; color:#5288c1; cursor:pointer; font-size:11px;">↩️</button>
+            ${isMe ? `<button onclick="deleteMessage('${data.id}')" style="background:none; border:none; color:#e53935; cursor:pointer; font-size:11px; opacity:0.6;">🗑️</button>` : ''}
           </div>
           ${reactionsHtml}
         `;
         container.appendChild(msgDiv);
+
+        if (!isMe) {
+          const avatarContainer = document.getElementById(`avatar-${data.id}`);
+          if (avatarContainer) renderAvatar(data.avatar, avatarContainer);
+        }
       });
       
       container.scrollTop = container.scrollHeight;
-      initialLoad = false;
     });
 }
 
@@ -495,14 +463,25 @@ function sendMessage() {
   const input = document.getElementById('message-input');
   const text = input.value.trim();
   if (text) {
-    db.collection('messages').add({
+    const msgData = {
       chatId: getChatId(),
       text: text,
-      author: currentUser,
+      author: currentUser.username,
+      displayName: currentUser.displayName,
+      avatar: currentUser.avatar,
       timestamp: firebase.firestore.FieldValue.serverTimestamp()
-    });
+    };
+
+    if (replyingToMessage) {
+      msgData.replyTo = replyingToMessage;
+    }
+
+    db.collection('messages').add(msgData);
+    sendSound.play().catch(() => {});
+    
     input.value = '';
-    db.collection('typing').doc(`${getChatId()}_${currentUser}`).set({ isTyping: false });
+    cancelReply();
+    db.collection('typing').doc(`${getChatId()}_${currentUser.username}`).set({ isTyping: false });
   }
 }
 
@@ -516,13 +495,42 @@ function handleKeyPress(e) {
   if (e.key === 'Enter') sendMessage();
 }
 
+function showDirectsList() {
+  document.getElementById('chats-list').style.display = 'block';
+  document.getElementById('messages-container').style.display = 'none';
+  document.getElementById('input-area').style.display = 'none';
+
+  const list = document.getElementById('chats-list');
+  list.innerHTML = `<div id="users-container"></div>`;
+
+  db.collection('users').get().then(snapshot => {
+    const usersBox = document.getElementById('users-container');
+    snapshot.forEach(doc => {
+      const user = doc.data();
+      if (user.name && user.name !== currentUser.username) {
+        const item = document.createElement('div');
+        item.className = 'chat-item';
+        item.onclick = () => openDirectChat(user.name);
+        item.innerHTML = `
+          <div class="chat-avatar" id="list-avatar-${user.name}"></div>
+          <div class="chat-info">
+            <div class="chat-name">${user.displayName || user.name}</div>
+            <div class="chat-last-msg">@${user.name}</div>
+          </div>
+        `;
+        usersBox.appendChild(item);
+        renderAvatar(user.avatar, document.getElementById(`list-avatar-${user.name}`));
+      }
+    });
+  });
+}
+
 // ==========================================
 // WEBRTC ВИДЕОЗВОНКИ
 // ==========================================
 async function setupMedia() {
   localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
   remoteStream = new MediaStream();
-  
   document.getElementById('local-video').srcObject = localStream;
   
   let remoteVideo = document.getElementById('remote-video');
@@ -544,7 +552,6 @@ function toggleMic() {
       audioTrack.enabled = isMicOn;
       const btn = document.getElementById('mic-btn');
       btn.innerText = isMicOn ? '🎤' : '🔇';
-      btn.classList.toggle('off', !isMicOn);
     }
   }
 }
@@ -557,7 +564,6 @@ function toggleCam() {
       videoTrack.enabled = isCamOn;
       const btn = document.getElementById('cam-btn');
       btn.innerText = isCamOn ? '📷' : '🚫';
-      btn.classList.toggle('off', !isCamOn);
     }
   }
 }
@@ -589,7 +595,7 @@ async function startCall() {
   const offer = {
     sdp: offerDescription.sdp,
     type: offerDescription.type,
-    caller: currentUser,
+    caller: currentUser.username,
     target: currentChat,
     status: 'pending'
   };
@@ -602,16 +608,13 @@ async function startCall() {
       const answerDescription = new RTCSessionDescription(data.answer);
       peerConnection.setRemoteDescription(answerDescription);
     }
-    if (data?.status === 'ended') {
-      hangUpLocally();
-    }
+    if (data?.status === 'ended') hangUpLocally();
   });
 
   answerCandidates.onSnapshot(snapshot => {
     snapshot.docChanges().forEach(change => {
       if (change.type === 'added') {
-        const candidate = new RTCIceCandidate(change.doc.data());
-        peerConnection.addIceCandidate(candidate);
+        peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data()));
       }
     });
   });
@@ -619,16 +622,15 @@ async function startCall() {
 
 function listenForIncomingCalls() {
   db.collection('calls')
-    .where('offer.target', 'in', [currentUser, 'global'])
+    .where('offer.target', 'in', [currentUser.username, 'global'])
     .onSnapshot(snapshot => {
       snapshot.docChanges().forEach(async change => {
         if (change.type === 'added') {
           const callData = change.doc.data();
-          if (callData.offer && callData.offer.status === 'pending' && callData.offer.caller !== currentUser) {
+          if (callData.offer && callData.offer.status === 'pending' && callData.offer.caller !== currentUser.username) {
             activeCallId = change.doc.id;
-            document.getElementById('caller-name').innerText = `Входящий звонок от ${callData.offer.caller}`;
+            document.getElementById('caller-name').innerText = `Звонок от ${callData.offer.caller}`;
             document.getElementById('incoming-call-box').style.display = 'flex';
-            sendPushNotification('Входящий звонок!', `Вам звонит ${callData.offer.caller}`);
             ringtone.play();
           }
         }
@@ -678,9 +680,7 @@ async function answerCall() {
   });
 
   callDoc.onSnapshot(snapshot => {
-    if (snapshot.data()?.status === 'ended') {
-      hangUpLocally();
-    }
+    if (snapshot.data()?.status === 'ended') hangUpLocally();
   });
 }
 
@@ -704,12 +704,8 @@ function hangUpLocally() {
   document.getElementById('call-modal').classList.remove('active');
   document.getElementById('incoming-call-box').style.display = 'none';
 
-  if (localStream) {
-    localStream.getTracks().forEach(track => track.stop());
-  }
-  if (peerConnection) {
-    peerConnection.close();
-  }
+  if (localStream) localStream.getTracks().forEach(track => track.stop());
+  if (peerConnection) peerConnection.close();
   peerConnection = null;
   activeCallId = null;
 }

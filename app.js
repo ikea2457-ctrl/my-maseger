@@ -1,5 +1,5 @@
 let currentUser = localStorage.getItem('chat_username') || '';
-let currentChat = 'global'; // 'global' или ник собеседника
+let currentChat = 'global';
 let unsubscribeListener = null;
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -29,7 +29,7 @@ function showChat() {
   document.getElementById('drawer-username').innerText = currentUser;
   document.getElementById('user-avatar-letter').innerText = currentUser[0].toUpperCase();
   
-  // Регистрируем юзера в списке участников
+  // Сохраняем пользователя в список
   db.collection('users').doc(currentUser).set({
     name: currentUser,
     lastSeen: firebase.firestore.FieldValue.serverTimestamp()
@@ -67,7 +67,7 @@ function openGlobalChat() {
 }
 
 function openDirectChat(targetUser) {
-  if (targetUser === currentUser) return; // Нельзя писать самому себе
+  if (targetUser === currentUser) return;
   currentChat = targetUser;
   document.getElementById('chat-title').innerText = targetUser;
   document.getElementById('chat-subtitle').innerText = "Личные сообщения";
@@ -89,7 +89,7 @@ function showDirectsList() {
     list.innerHTML = '';
     snapshot.forEach(doc => {
       const user = doc.data();
-      if (user.name !== currentUser) {
+      if (user.name && user.name !== currentUser) {
         const item = document.createElement('div');
         item.className = 'chat-item';
         item.onclick = () => openDirectChat(user.name);
@@ -106,33 +106,37 @@ function showDirectsList() {
   });
 }
 
-// Генерация уникального ID для личного чата двух людей
 function getChatId() {
   if (currentChat === 'global') return 'global';
   return [currentUser, currentChat].sort().join('_');
 }
 
+// Загрузка сообщений (поддерживает и старые, и новые записи)
 function loadMessages() {
   if (unsubscribeListener) unsubscribeListener();
 
-  const chatId = getChatId();
+  const targetChatId = getChatId();
 
   unsubscribeListener = db.collection('messages')
-    .where('chatId', '==', chatId)
     .onSnapshot(snapshot => {
       const container = document.getElementById('messages-container');
       
       let messages = [];
       snapshot.forEach(doc => {
         const data = doc.data();
-        messages.push({
-          id: doc.id,
-          author: data.author || 'Аноним',
-          text: data.text || '',
-          timestamp: data.timestamp ? data.timestamp.toMillis() : Date.now()
-        });
+        const msgChatId = data.chatId || 'global'; // Если chatId нет — считаем, что это общий чат
+
+        if (msgChatId === targetChatId) {
+          messages.push({
+            id: doc.id,
+            author: data.author || 'Аноним',
+            text: data.text || '',
+            timestamp: data.timestamp ? data.timestamp.toMillis() : Date.now()
+          });
+        }
       });
 
+      // Сортировка от старых к новым
       messages.sort((a, b) => a.timestamp - b.timestamp);
 
       container.innerHTML = '';

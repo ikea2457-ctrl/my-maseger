@@ -50,7 +50,12 @@
 
     <!-- Поле ввода -->
     <div class="chat-input-area" id="input-area">
-      <input type="text" id="message-input" class="chat-input" placeholder="Сообщение..." onkeypress="handleKeyPress(event)">
+      <label for="image-input" class="icon-btn" style="cursor:pointer; display:flex; align-items:center;">📎</label>
+      <input type="file" id="image-input" accept="image/*" style="display:none;" onchange="sendImage(event)">
+      
+      <input type="text" id="message-input" class="chat-input" placeholder="Сообщение..." onkeypress="handleKeyPress(event)" oninput="handleTyping()">
+      
+      <button class="icon-btn" id="voice-btn" onclick="toggleVoiceRecord()" style="color:#5288c1;">🎙️</button>
       <button class="send-btn" onclick="sendMessage()">➤</button>
     </div>
   </div>

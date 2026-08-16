@@ -1,6 +1,7 @@
 let currentUser = localStorage.getItem('chat_username') || '';
 let currentChat = 'global';
 let unsubscribeListener = null;
+let typingTimeout = null;
 
 // Переменные WebRTC & Медиа
 let peerConnection = null;
@@ -11,6 +12,11 @@ let activeCallId = null;
 let isMicOn = true;
 let isCamOn = true;
 
+// Переменные для Записи Голосовых
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+
 const servers = {
   iceServers: [
     { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }
@@ -18,18 +24,35 @@ const servers = {
 };
 
 // ==========================================
-// МОДУЛЬ ЗВУКА ВХОДЯЩЕГО ЗВОНКА (РИНГТОН)
+// МОДУЛЬ ЗВУКА И ВИБРАЦИИ ВХОДЯЩЕГО ЗВОНКА
 // ==========================================
 const ringtone = {
   audio: new Audio('https://assets.mixkit.co/active_storage/sfx/1358/1358-preview.mp3'),
+  vibrateInterval: null,
+  
   play() {
     this.audio.loop = true;
     this.audio.currentTime = 0;
-    this.audio.play().catch(e => console.log("Автовоспроизведение заблокировано браузером до клика юзера:", e));
+    this.audio.play().catch(e => console.log("Автовоспроизведение заблокировано браузером:", e));
+    
+    if ("vibrate" in navigator) {
+      navigator.vibrate([1000, 1000]);
+      this.vibrateInterval = setInterval(() => {
+        navigator.vibrate([1000, 1000]);
+      }, 2000);
+    }
   },
+  
   stop() {
     this.audio.pause();
     this.audio.currentTime = 0;
+    if (this.vibrateInterval) {
+      clearInterval(this.vibrateInterval);
+      this.vibrateInterval = null;
+    }
+    if ("vibrate" in navigator) {
+      navigator.vibrate(0);
+    }
   }
 };
 
@@ -39,7 +62,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-// Запрос разрешения на браузерные Push-уведомления
 function requestNotificationPermission() {
   if ("Notification" in window && Notification.permission !== "granted") {
     Notification.requestPermission();
@@ -76,13 +98,20 @@ function showChat() {
   
   requestNotificationPermission();
 
+  // ФИЧА 4: Обновление статуса Онлайн / Last Seen
+  updateUserPresence();
+  setInterval(updateUserPresence, 30000);
+
+  listenForIncomingCalls();
+  listenForTypingStatus();
+  openGlobalChat();
+}
+
+function updateUserPresence() {
   db.collection('users').doc(currentUser).set({
     name: currentUser,
     lastSeen: firebase.firestore.FieldValue.serverTimestamp()
   }, { merge: true });
-
-  listenForIncomingCalls();
-  openGlobalChat();
 }
 
 function toggleMenu() {
@@ -104,7 +133,7 @@ function switchTab(tab) {
 function openGlobalChat() {
   currentChat = 'global';
   document.getElementById('chat-title').innerText = "Общий Чат 🌐";
-  document.getElementById('chat-subtitle').innerText = "все пользователи";
+  document.getElementById('chat-subtitle').innerText = "онлайн";
   document.getElementById('back-btn').style.display = 'none';
   document.getElementById('call-btn').style.display = 'block'; 
   document.getElementById('chats-list').style.display = 'none';
@@ -112,24 +141,36 @@ function openGlobalChat() {
   document.getElementById('input-area').style.display = 'flex';
   document.getElementById('tabs-bar').style.display = 'flex';
   loadMessages();
+  listenForTypingStatus();
 }
 
 function openDirectChat(targetUser) {
   if (targetUser === currentUser) return;
   currentChat = targetUser;
   document.getElementById('chat-title').innerText = targetUser;
-  document.getElementById('chat-subtitle').innerText = "Личные сообщения";
+  document.getElementById('chat-subtitle').innerText = "загрузка статуса...";
   document.getElementById('back-btn').style.display = 'block';
   document.getElementById('call-btn').style.display = 'block';
   document.getElementById('chats-list').style.display = 'none';
   document.getElementById('messages-container').style.display = 'flex';
   document.getElementById('input-area').style.display = 'flex';
   document.getElementById('tabs-bar').style.display = 'none';
+  
+  // ФИЧА 4: Показ статуса онлайн собеседника
+  db.collection('users').doc(targetUser).onSnapshot(doc => {
+    if (doc.exists && doc.data().lastSeen) {
+      const lastSeenMs = doc.data().lastSeen.toMillis();
+      const diffSec = Math.floor((Date.now() - lastSeenMs) / 1000);
+      document.getElementById('chat-subtitle').innerText = diffSec < 60 ? "онлайн" : `был(а) ${Math.floor(diffSec / 60)} мин. назад`;
+    }
+  });
+
   loadMessages();
+  listenForTypingStatus();
 }
 
 // ==========================================
-// ГРУППОВЫЕ ЧАТЫ (СОЗДАНИЕ И ПОДКЛЮЧЕНИЕ)
+// ГРУППОВЫЕ ЧАТЫ
 // ==========================================
 async function createGroupChat() {
   const groupName = prompt("Введи название группы:");
@@ -143,7 +184,7 @@ async function createGroupChat() {
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
-    alert(`Группа "${groupName}" создана! ID для подключения: ${groupRef.id}`);
+    alert(`Группа "${groupName}" создана! ID: ${groupRef.id}`);
     showDirectsList();
   } catch (err) {
     alert("Ошибка создания группы: " + err.message);
@@ -178,12 +219,13 @@ function openGroupChat(groupId, groupName) {
   document.getElementById('chat-title').innerText = `👥 ${groupName}`;
   document.getElementById('chat-subtitle').innerText = `ID: ${groupId}`;
   document.getElementById('back-btn').style.display = 'block';
-  document.getElementById('call-btn').style.display = 'none'; // В группах звонки отключены
+  document.getElementById('call-btn').style.display = 'none';
   document.getElementById('chats-list').style.display = 'none';
   document.getElementById('messages-container').style.display = 'flex';
   document.getElementById('input-area').style.display = 'flex';
   document.getElementById('tabs-bar').style.display = 'none';
   loadMessages();
+  listenForTypingStatus();
 }
 
 function showDirectsList() {
@@ -193,15 +235,14 @@ function showDirectsList() {
 
   const list = document.getElementById('chats-list');
   list.innerHTML = `
-    <div style="padding: 10px; display: flex; gap: 8px;">
-      <button onclick="createGroupChat()" style="flex:1; padding: 8px; cursor:pointer;">+ Создать группу</button>
-      <button onclick="joinGroupChat()" style="flex:1; padding: 8px; cursor:pointer;">Войти в группу</button>
+    <div class="group-actions-bar">
+      <button class="group-btn" onclick="createGroupChat()">+ Создать группу</button>
+      <button class="group-btn" onclick="joinGroupChat()">Войти в группу</button>
     </div>
     <div id="groups-container"></div>
     <div id="users-container"></div>
   `;
 
-  // Загрузка групп, где состоит юзер
   db.collection('groups').where('members', 'array-contains', currentUser).get().then(snapshot => {
     const groupsBox = document.getElementById('groups-container');
     snapshot.forEach(doc => {
@@ -213,14 +254,13 @@ function showDirectsList() {
         <div class="chat-avatar">👥</div>
         <div class="chat-info">
           <div class="chat-name">${group.name}</div>
-          <div class="chat-last-msg">Групповой чат (Нажми, чтобы открыть)</div>
+          <div class="chat-last-msg">Групповой чат</div>
         </div>
       `;
       groupsBox.appendChild(item);
     });
   });
 
-  // Загрузка остальных пользователей
   db.collection('users').get().then(snapshot => {
     const usersBox = document.getElementById('users-container');
     snapshot.forEach(doc => {
@@ -248,6 +288,126 @@ function getChatId() {
   return [currentUser, currentChat].sort().join('_');
 }
 
+// ==========================================
+// ФИЧА 3: Индикатор "Печатает..."
+// ==========================================
+function handleTyping() {
+  const chatId = getChatId();
+  db.collection('typing').doc(`${chatId}_${currentUser}`).set({
+    user: currentUser,
+    chatId: chatId,
+    isTyping: true,
+    timestamp: Date.now()
+  });
+
+  clearTimeout(typingTimeout);
+  typingTimeout = setTimeout(() => {
+    db.collection('typing').doc(`${chatId}_${currentUser}`).set({ isTyping: false });
+  }, 2000);
+}
+
+function listenForTypingStatus() {
+  const chatId = getChatId();
+  db.collection('typing').where('chatId', '==', chatId).onSnapshot(snapshot => {
+    let typers = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (data.user !== currentUser && data.isTyping && (Date.now() - data.timestamp < 3000)) {
+        typers.push(data.user);
+      }
+    });
+    const subtitle = document.getElementById('chat-subtitle');
+    if (typers.length > 0) {
+      subtitle.innerText = `${typers.join(', ')} печатает...`;
+      subtitle.style.color = '#5288c1';
+    } else if (currentChat === 'global') {
+      subtitle.innerText = "онлайн";
+      subtitle.style.color = '#6c7883';
+    }
+  });
+}
+
+// ==========================================
+// ФИЧА 1 & 5: Голосовые сообщения и Картинки
+// ==========================================
+async function toggleVoiceRecord() {
+  const btn = document.getElementById('voice-btn');
+  if (!isRecording) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = [];
+
+      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = () => {
+          db.collection('messages').add({
+            chatId: getChatId(),
+            audio: reader.result,
+            author: currentUser,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        };
+      };
+
+      mediaRecorder.start();
+      isRecording = true;
+      btn.innerText = '🔴';
+    } catch (err) {
+      alert("Нет доступа к микрофону!");
+    }
+  } else {
+    mediaRecorder.stop();
+    isRecording = false;
+    btn.innerText = '🎙️';
+  }
+}
+
+function sendImage(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  if (file.size > 2 * 1024 * 1024) {
+    return alert("Файл слишком большой! Выбери фото до 2MB.");
+  }
+
+  const reader = new FileReader();
+  reader.onload = function(event) {
+    db.collection('messages').add({
+      chatId: getChatId(),
+      image: event.target.result,
+      author: currentUser,
+      timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  };
+  reader.readAsDataURL(file);
+}
+
+// ==========================================
+// ФИЧА 2: Реакции на сообщения
+// ==========================================
+function addReaction(msgId, emoji) {
+  const msgRef = db.collection('messages').doc(msgId);
+  db.runTransaction(async transaction => {
+    const doc = await transaction.get(msgRef);
+    if (!doc.exists) return;
+    
+    let reactions = doc.data().reactions || {};
+    if (!reactions[emoji]) reactions[emoji] = [];
+
+    if (reactions[emoji].includes(currentUser)) {
+      reactions[emoji] = reactions[emoji].filter(u => u !== currentUser);
+    } else {
+      reactions[emoji].push(currentUser);
+    }
+
+    transaction.update(msgRef, { reactions: reactions });
+  });
+}
+
 function loadMessages() {
   if (unsubscribeListener) unsubscribeListener();
 
@@ -263,7 +423,7 @@ function loadMessages() {
         if (change.type === 'added' && !initialLoad) {
           const data = change.doc.data();
           if (data.author !== currentUser && (data.chatId === targetChatId || (!data.chatId && targetChatId === 'global'))) {
-            sendPushNotification(`Сообщение от ${data.author}`, data.text);
+            sendPushNotification(`Сообщение от ${data.author}`, data.text || "Медиафайл");
           }
         }
       });
@@ -277,6 +437,9 @@ function loadMessages() {
             id: doc.id,
             author: data.author || 'Аноним',
             text: data.text || '',
+            image: data.image || null,
+            audio: data.audio || null,
+            reactions: data.reactions || {},
             timestamp: data.timestamp ? data.timestamp.toMillis() : Date.now()
           });
         }
@@ -290,12 +453,35 @@ function loadMessages() {
         const msgDiv = document.createElement('div');
         msgDiv.className = `msg ${isMe ? 'outgoing' : 'incoming'}`;
         
+        // Формирование содержимого (Текст / Картинка / Голосовуха)
+        let contentHtml = '';
+        if (data.image) {
+          contentHtml = `<img src="${data.image}" style="max-width:100%; border-radius:10px; margin-top:5px;">`;
+        } else if (data.audio) {
+          contentHtml = `<audio controls src="${data.audio}" style="max-width:200px; height:35px;"></audio>`;
+        } else {
+          contentHtml = `<span>${data.text}</span>`;
+        }
+
+        // Рендер Реакций
+        let reactionsHtml = '<div style="display:flex; gap:4px; margin-top:4px;">';
+        ['👍', '❤️', '🔥', '💩'].forEach(emoji => {
+          const count = data.reactions[emoji] ? data.reactions[emoji].length : 0;
+          reactionsHtml += `
+            <button onclick="addReaction('${data.id}', '${emoji}')" style="background:#242f3d; border:none; border-radius:8px; padding:2px 5px; color:#fff; font-size:11px; cursor:pointer;">
+              ${emoji} ${count > 0 ? count : ''}
+            </button>
+          `;
+        });
+        reactionsHtml += '</div>';
+
         msgDiv.innerHTML = `
           ${!isMe ? `<div class="msg-author" onclick="openDirectChat('${data.author}')">${data.author}</div>` : ''}
-          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-            <span>${data.text}</span>
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+            <div style="flex:1;">${contentHtml}</div>
             <button onclick="deleteMessage('${data.id}')" style="background:none; border:none; color:#e53935; cursor:pointer; font-size:12px; opacity:0.6;">🗑️</button>
           </div>
+          ${reactionsHtml}
         `;
         container.appendChild(msgDiv);
       });
@@ -316,6 +502,7 @@ function sendMessage() {
       timestamp: firebase.firestore.FieldValue.serverTimestamp()
     });
     input.value = '';
+    db.collection('typing').doc(`${getChatId()}_${currentUser}`).set({ isTyping: false });
   }
 }
 
@@ -329,8 +516,9 @@ function handleKeyPress(e) {
   if (e.key === 'Enter') sendMessage();
 }
 
-// ---------------- WEBRTC ВИДЕОЗВОНКИ С УПРАВЛЕНИЕМ ----------------
-
+// ==========================================
+// WEBRTC ВИДЕОЗВОНКИ
+// ==========================================
 async function setupMedia() {
   localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
   remoteStream = new MediaStream();
@@ -441,8 +629,6 @@ function listenForIncomingCalls() {
             document.getElementById('caller-name').innerText = `Входящий звонок от ${callData.offer.caller}`;
             document.getElementById('incoming-call-box').style.display = 'flex';
             sendPushNotification('Входящий звонок!', `Вам звонит ${callData.offer.caller}`);
-            
-            // Запускаем рингтон при получении оффера
             ringtone.play();
           }
         }
@@ -451,9 +637,9 @@ function listenForIncomingCalls() {
 }
 
 async function answerCall() {
-  // Выключаем звук звонка
   ringtone.stop();
   document.getElementById('incoming-call-box').style.display = 'none';
+
   await setupMedia();
   document.getElementById('call-modal').classList.add('active');
 
@@ -499,7 +685,6 @@ async function answerCall() {
 }
 
 function rejectCall() {
-  // Выключаем звук звонка
   ringtone.stop();
   document.getElementById('incoming-call-box').style.display = 'none';
   if (activeCallId) {

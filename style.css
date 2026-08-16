@@ -40,14 +40,13 @@ body, html { height: 100%; width: 100%; background-color: #0f1721; color: #fff; 
 .msg.incoming { background: #182533; align-self: flex-start; border-bottom-left-radius: 4px; }
 .msg.outgoing { background: #2b5278; align-self: flex-end; border-bottom-right-radius: 4px; }
 .msg-author { font-size: 12px; font-weight: bold; color: #5288c1; margin-bottom: 3px; cursor: pointer; }
-.msg-author:hover { text-decoration: underline; }
 
 /* Поле ввода */
 .chat-input-area { padding: 8px 12px; background: #17212b; display: flex; align-items: center; gap: 8px; border-top: 1px solid #0e1621; }
 .chat-input { flex: 1; padding: 10px 14px; border-radius: 20px; border: none; background: #242f3d; color: #fff; outline: none; font-size: 15px; }
 .send-btn { background: #5288c1; border: none; width: 40px; height: 40px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 
-/* Выдвижное меню */
+/* Меню */
 .drawer { position: fixed; top: 0; left: -280px; width: 280px; height: 100%; background: #17212b; transition: 0.3s ease; z-index: 100; display: flex; flex-direction: column; }
 .drawer.open { left: 0; }
 .drawer-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; z-index: 99; }
@@ -55,4 +54,15 @@ body, html { height: 100%; width: 100%; background-color: #0f1721; color: #fff; 
 .drawer-header { padding: 20px; background: #242f3d; }
 .user-avatar { width: 50px; height: 50px; border-radius: 50%; background: #5288c1; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; margin-bottom: 10px; }
 .menu-item { padding: 14px 20px; display: flex; align-items: center; gap: 15px; color: #fff; cursor: pointer; font-size: 15px; }
-.menu-item:active { background: #242f3d; }
+
+/* Звонок */
+.call-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 200; display: none; flex-direction: column; }
+.call-modal.active { display: flex; }
+.video-container { flex: 1; position: relative; background: #111; }
+#remote-video { width: 100%; height: 100%; object-fit: cover; }
+#local-video { width: 100px; height: 140px; object-fit: cover; position: absolute; top: 20px; right: 20px; border-radius: 12px; border: 2px solid #fff; background: #222; }
+.call-controls { padding: 20px; display: flex; justify-content: center; background: rgba(0,0,0,0.8); }
+.call-end-btn { padding: 14px 28px; background: #e53935; border: none; border-radius: 30px; color: #fff; font-weight: bold; font-size: 16px; cursor: pointer; }
+
+/* Входящий звонок */
+.incoming-call-box { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 320px; background: #17212b; padding: 15px; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.6); z-index: 300; display: none; flex-direction: column; text-align: center; border: 1px solid #5288c1; }

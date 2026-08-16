@@ -17,7 +17,7 @@
     </div>
   </div>
 
-  <!-- Главный Экран (Список Чатов и Сообщения) -->
+  <!-- Главный Экран -->
   <div id="chat-screen" class="screen">
     
     <!-- Шапка -->
@@ -30,25 +30,48 @@
           <div class="chat-subtitle" id="chat-subtitle">онлайн</div>
         </div>
       </div>
-      <button class="icon-btn" style="color:#e53935;" onclick="logout()">🚪</button>
+      <div style="display:flex; gap:5px;">
+        <button class="icon-btn" id="call-btn" onclick="startCall()" style="display:none; color:#4caf50;">📞</button>
+        <button class="icon-btn" style="color:#e53935;" onclick="logout()">🚪</button>
+      </div>
     </div>
 
-    <!-- Вкладки: Общий / Лички -->
+    <!-- Вкладки -->
     <div class="tabs-bar" id="tabs-bar">
       <button class="tab-btn active" id="tab-global" onclick="switchTab('global')">Общий Чат</button>
       <button class="tab-btn" id="tab-directs" onclick="switchTab('directs')">Лички</button>
     </div>
 
-    <!-- Список пользователей (для ЛС) -->
+    <!-- Список пользователей -->
     <div class="chats-list" id="chats-list" style="display: none;"></div>
 
-    <!-- Область Сообщений -->
+    <!-- Сообщения -->
     <div class="chat-messages" id="messages-container"></div>
 
-    <!-- Поле Ввода -->
+    <!-- Поле ввода -->
     <div class="chat-input-area" id="input-area">
       <input type="text" id="message-input" class="chat-input" placeholder="Сообщение..." onkeypress="handleKeyPress(event)">
       <button class="send-btn" onclick="sendMessage()">➤</button>
+    </div>
+  </div>
+
+  <!-- Модалка видеозвонка -->
+  <div class="call-modal" id="call-modal">
+    <div class="video-container">
+      <video id="remote-video" autoplay playsinline></video>
+      <video id="local-video" autoplay playsinline muted></video>
+    </div>
+    <div class="call-controls">
+      <button class="call-end-btn" onclick="hangUp()">❌ Завершить</button>
+    </div>
+  </div>
+
+  <!-- Уведомление об инкаминге -->
+  <div class="incoming-call-box" id="incoming-call-box">
+    <div id="caller-name">Входящий звонок...</div>
+    <div style="display:flex; gap:10px; margin-top:10px;">
+      <button class="btn" style="background:#4caf50;" onclick="answerCall()">Ответить</button>
+      <button class="btn" style="background:#e53935;" onclick="rejectCall()">Сбросить</button>
     </div>
   </div>
 
@@ -62,8 +85,7 @@
     <div class="drawer-menu">
       <div class="menu-item" onclick="openGlobalChat(); toggleMenu();">🌐 Общий чат</div>
       <div class="menu-item" onclick="switchTab('directs'); toggleMenu();">💬 Личные сообщения</div>
-      <div class="menu-item" onclick="alert('Раздел Игры (Дурак) в разработке!')">🃏 Игра «Дурак»</div>
-      <div class="menu-item" onclick="logout()" style="color:#e53935;">🚪 Выйти из аккаунта</div>
+      <div class="menu-item" onclick="logout()" style="color:#e53935;">🚪 Выйти</div>
     </div>
   </div>
 
@@ -71,7 +93,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
-  <!-- Скрипты проекта -->
+  <!-- Скрипты -->
   <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>

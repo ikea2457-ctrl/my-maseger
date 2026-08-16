@@ -1,46 +1,62 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TG Messenger</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>TG Messenger</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <!-- Экран авторизации -->
-    <div id="auth-screen" class="screen">
-        <div class="auth-box">
-            <h2>Вход в чат</h2>
-            <input type="text" id="nickname-input" placeholder="Введите ваш никнейм..." autocomplete="off">
-            <button id="login-btn">Войти</button>
+  <!-- Экран Входа -->
+  <div id="auth-screen" class="screen active">
+    <div class="auth-box">
+      <h2>TG Messenger</h2>
+      <input type="text" id="username-input" class="auth-input" placeholder="Введи никнейм..." maxlength="20">
+      <button class="btn" onclick="login()">Войти в чат</button>
+    </div>
+  </div>
+
+  <!-- Экран Чанта -->
+  <div id="chat-screen" class="screen">
+    <div class="chat-header">
+      <div class="header-left">
+        <button class="icon-btn" onclick="toggleMenu()">☰</button>
+        <div>
+          <div class="chat-title">Общий Чат 🌐</div>
+          <div class="chat-subtitle">онлайн</div>
         </div>
+      </div>
+      <button class="icon-btn" style="color:#e53935;" onclick="logout()">🚪</button>
     </div>
 
-    <!-- Экран чата -->
-    <div id="chat-screen" class="screen hidden">
-        <div class="chat-header">
-            <span id="chat-title">Общий Чат 🌐</span>
-            <button id="logout-btn">Выйти</button>
-        </div>
-        <div id="messages-container" class="messages-container"></div>
-        <div class="chat-input-area">
-            <input type="text" id="message-input" placeholder="Сообщение..." autocomplete="off">
-            <button id="send-btn">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-                </svg>
-            </button>
-        </div>
+    <div class="chat-messages" id="messages-container"></div>
+
+    <div class="chat-input-area">
+      <input type="text" id="message-input" class="chat-input" placeholder="Сообщение..." onkeypress="handleKeyPress(event)">
+      <button class="send-btn" onclick="sendMessage()">➤</button>
     </div>
+  </div>
 
-    <!-- Firebase SDK (compat-версии) -->
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <!-- Боковое меню -->
+  <div class="drawer-overlay" id="overlay" onclick="toggleMenu()"></div>
+  <div class="drawer" id="drawer">
+    <div class="drawer-header">
+      <div class="user-avatar" id="user-avatar-letter">?</div>
+      <div style="font-weight: bold;" id="drawer-username">Пользователь</div>
+    </div>
+    <div class="drawer-menu">
+      <div class="menu-item" onclick="alert('Раздел Игры (Дурак) в разработке!')">🃏 Игра «Дурак»</div>
+      <div class="menu-item" onclick="logout()" style="color:#e53935;">🚪 Выйти из аккаунта</div>
+    </div>
+  </div>
 
-    <!-- Скрипты проекта -->
-    <script src="firebase-config.js"></script>
-    <script src="app.js"></script>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+  <!-- Скрипты проекта -->
+  <script src="firebase-config.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

@@ -17,6 +17,22 @@ const servers = {
   ]
 };
 
+// ==========================================
+// МОДУЛЬ ЗВУКА ВХОДЯЩЕГО ЗВОНКА (РИНГТОН)
+// ==========================================
+const ringtone = {
+  audio: new Audio('https://assets.mixkit.co/active_storage/sfx/1358/1358-preview.mp3'),
+  play() {
+    this.audio.loop = true;
+    this.audio.currentTime = 0;
+    this.audio.play().catch(e => console.log("Автовоспроизведение заблокировано браузером до клика юзера:", e));
+  },
+  stop() {
+    this.audio.pause();
+    this.audio.currentTime = 0;
+  }
+};
+
 document.addEventListener("DOMContentLoaded", () => {
   if (currentUser) {
     showChat();
@@ -47,6 +63,7 @@ function login() {
 }
 
 function logout() {
+  ringtone.stop();
   localStorage.removeItem('chat_username');
   location.reload();
 }
@@ -89,7 +106,7 @@ function openGlobalChat() {
   document.getElementById('chat-title').innerText = "Общий Чат 🌐";
   document.getElementById('chat-subtitle').innerText = "все пользователи";
   document.getElementById('back-btn').style.display = 'none';
-  document.getElementById('call-btn').style.display = 'block'; // Позволяет звонить в общем гугле
+  document.getElementById('call-btn').style.display = 'block'; 
   document.getElementById('chats-list').style.display = 'none';
   document.getElementById('messages-container').style.display = 'flex';
   document.getElementById('input-area').style.display = 'flex';
@@ -111,14 +128,101 @@ function openDirectChat(targetUser) {
   loadMessages();
 }
 
+// ==========================================
+// ГРУППОВЫЕ ЧАТЫ (СОЗДАНИЕ И ПОДКЛЮЧЕНИЕ)
+// ==========================================
+async function createGroupChat() {
+  const groupName = prompt("Введи название группы:");
+  if (!groupName) return;
+
+  try {
+    const groupRef = await db.collection('groups').add({
+      name: groupName,
+      createdBy: currentUser,
+      members: [currentUser],
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    alert(`Группа "${groupName}" создана! ID для подключения: ${groupRef.id}`);
+    showDirectsList();
+  } catch (err) {
+    alert("Ошибка создания группы: " + err.message);
+  }
+}
+
+async function joinGroupChat() {
+  const groupId = prompt("Введи ID группы для входа:");
+  if (!groupId) return;
+
+  try {
+    const groupRef = db.collection('groups').doc(groupId);
+    const doc = await groupRef.get();
+
+    if (!doc.exists) {
+      return alert("Группа с таким ID не найдена!");
+    }
+
+    await groupRef.update({
+      members: firebase.firestore.FieldValue.arrayUnion(currentUser)
+    });
+
+    alert(`Ты успешно вошел в группу "${doc.data().name}"!`);
+    showDirectsList();
+  } catch (err) {
+    alert("Ошибка входа в группу: " + err.message);
+  }
+}
+
+function openGroupChat(groupId, groupName) {
+  currentChat = `group_${groupId}`;
+  document.getElementById('chat-title').innerText = `👥 ${groupName}`;
+  document.getElementById('chat-subtitle').innerText = `ID: ${groupId}`;
+  document.getElementById('back-btn').style.display = 'block';
+  document.getElementById('call-btn').style.display = 'none'; // В группах звонки отключены
+  document.getElementById('chats-list').style.display = 'none';
+  document.getElementById('messages-container').style.display = 'flex';
+  document.getElementById('input-area').style.display = 'flex';
+  document.getElementById('tabs-bar').style.display = 'none';
+  loadMessages();
+}
+
 function showDirectsList() {
   document.getElementById('chats-list').style.display = 'block';
   document.getElementById('messages-container').style.display = 'none';
   document.getElementById('input-area').style.display = 'none';
 
+  const list = document.getElementById('chats-list');
+  list.innerHTML = `
+    <div style="padding: 10px; display: flex; gap: 8px;">
+      <button onclick="createGroupChat()" style="flex:1; padding: 8px; cursor:pointer;">+ Создать группу</button>
+      <button onclick="joinGroupChat()" style="flex:1; padding: 8px; cursor:pointer;">Войти в группу</button>
+    </div>
+    <div id="groups-container"></div>
+    <div id="users-container"></div>
+  `;
+
+  // Загрузка групп, где состоит юзер
+  db.collection('groups').where('members', 'array-contains', currentUser).get().then(snapshot => {
+    const groupsBox = document.getElementById('groups-container');
+    snapshot.forEach(doc => {
+      const group = doc.data();
+      const item = document.createElement('div');
+      item.className = 'chat-item';
+      item.onclick = () => openGroupChat(doc.id, group.name);
+      item.innerHTML = `
+        <div class="chat-avatar">👥</div>
+        <div class="chat-info">
+          <div class="chat-name">${group.name}</div>
+          <div class="chat-last-msg">Групповой чат (Нажми, чтобы открыть)</div>
+        </div>
+      `;
+      groupsBox.appendChild(item);
+    });
+  });
+
+  // Загрузка остальных пользователей
   db.collection('users').get().then(snapshot => {
-    const list = document.getElementById('chats-list');
-    list.innerHTML = '';
+    const usersBox = document.getElementById('users-container');
     snapshot.forEach(doc => {
       const user = doc.data();
       if (user.name && user.name !== currentUser) {
@@ -132,7 +236,7 @@ function showDirectsList() {
             <div class="chat-last-msg">Нажми, чтобы открыть ЛС</div>
           </div>
         `;
-        list.appendChild(item);
+        usersBox.appendChild(item);
       }
     });
   });
@@ -140,6 +244,7 @@ function showDirectsList() {
 
 function getChatId() {
   if (currentChat === 'global') return 'global';
+  if (currentChat.startsWith('group_')) return currentChat;
   return [currentUser, currentChat].sort().join('_');
 }
 
@@ -187,7 +292,7 @@ function loadMessages() {
         
         msgDiv.innerHTML = `
           ${!isMe ? `<div class="msg-author" onclick="openDirectChat('${data.author}')">${data.author}</div>` : ''}
-          <div style="display: flex; justify-content: space-between; align- items: center; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
             <span>${data.text}</span>
             <button onclick="deleteMessage('${data.id}')" style="background:none; border:none; color:#e53935; cursor:pointer; font-size:12px; opacity:0.6;">🗑️</button>
           </div>
@@ -336,6 +441,9 @@ function listenForIncomingCalls() {
             document.getElementById('caller-name').innerText = `Входящий звонок от ${callData.offer.caller}`;
             document.getElementById('incoming-call-box').style.display = 'flex';
             sendPushNotification('Входящий звонок!', `Вам звонит ${callData.offer.caller}`);
+            
+            // Запускаем рингтон при получении оффера
+            ringtone.play();
           }
         }
       });
@@ -343,6 +451,8 @@ function listenForIncomingCalls() {
 }
 
 async function answerCall() {
+  // Выключаем звук звонка
+  ringtone.stop();
   document.getElementById('incoming-call-box').style.display = 'none';
   await setupMedia();
   document.getElementById('call-modal').classList.add('active');
@@ -389,6 +499,8 @@ async function answerCall() {
 }
 
 function rejectCall() {
+  // Выключаем звук звонка
+  ringtone.stop();
   document.getElementById('incoming-call-box').style.display = 'none';
   if (activeCallId) {
     db.collection('calls').doc(activeCallId).update({ 'offer.status': 'rejected' });
@@ -403,6 +515,7 @@ function hangUp() {
 }
 
 function hangUpLocally() {
+  ringtone.stop();
   document.getElementById('call-modal').classList.remove('active');
   document.getElementById('incoming-call-box').style.display = 'none';
 

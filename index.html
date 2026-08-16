@@ -2,100 +2,94 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>TG Messenger</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Messenger</title>
   <link rel="stylesheet" href="style.css">
+  
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
 </head>
 <body>
 
-  <!-- Экран Входа -->
+  <!-- Экран авторизации -->
   <div id="auth-screen" class="screen active">
     <div class="auth-box">
-      <h2>TG Messenger</h2>
-      <input type="text" id="username-input" class="auth-input" placeholder="Введи никнейм..." maxlength="20">
-      <button class="btn" onclick="login()">Войти в чат</button>
+      <h2>Вход в Messenger</h2>
+      <input type="text" id="username-input" placeholder="Введи имя или ник..." onkeypress="if(event.key==='Enter') login()">
+      <button onclick="login()">Войти</button>
     </div>
   </div>
 
-  <!-- Главный Экран -->
+  <!-- Главный экран чата -->
   <div id="chat-screen" class="screen">
     
     <!-- Шапка -->
-    <div class="chat-header">
-      <div class="header-left">
-        <button class="icon-btn" onclick="toggleMenu()">☰</button>
-        <button class="icon-btn back-btn" id="back-btn" onclick="openGlobalChat()" style="display:none;">⬅</button>
-        <div>
-          <div class="chat-title" id="chat-title">Общий Чат 🌐</div>
-          <div class="chat-subtitle" id="chat-subtitle">онлайн</div>
-        </div>
+    <header class="header">
+      <button class="icon-btn" onclick="toggleMenu()">☰</button>
+      <button id="back-btn" class="icon-btn" style="display: none;" onclick="switchTab('directs')">⬅</button>
+      <div class="chat-info-header">
+        <div id="chat-title" class="title">Общий Чат 🌐</div>
+        <div id="chat-subtitle" class="subtitle">все пользователи</div>
       </div>
-      <div style="display:flex; gap:5px;">
-        <button class="icon-btn" id="call-btn" onclick="startCall()" style="color:#4caf50;">📞</button>
-        <button class="icon-btn" style="color:#e53935;" onclick="logout()">🚪</button>
-      </div>
+      <button id="call-btn" class="icon-btn" onclick="startCall()">📞</button>
+    </header>
+
+    <!-- Табы (Общий / Личные) -->
+    <div id="tabs-bar" class="tabs-bar">
+      <div id="tab-global" class="tab active" onclick="switchTab('global')">Общий</div>
+      <div id="tab-directs" class="tab" onclick="switchTab('directs')">Личные & Группы</div>
     </div>
 
-    <!-- Вкладки -->
-    <div class="tabs-bar" id="tabs-bar">
-      <button class="tab-btn active" id="tab-global" onclick="switchTab('global')">Общий Чат</button>
-      <button class="tab-btn" id="tab-directs" onclick="switchTab('directs')">Лички</button>
-    </div>
-
-    <!-- Список пользователей -->
-    <div class="chats-list" id="chats-list" style="display: none;"></div>
+    <!-- Список личных чатов и групп -->
+    <div id="chats-list" class="chats-list" style="display: none;"></div>
 
     <!-- Сообщения -->
-    <div class="chat-messages" id="messages-container"></div>
+    <div id="messages-container" class="messages-container"></div>
 
     <!-- Поле ввода -->
-    <div class="chat-input-area" id="input-area">
-      <input type="text" id="message-input" class="chat-input" placeholder="Сообщение..." onkeypress="handleKeyPress(event)">
-      <button class="send-btn" onclick="sendMessage()">➤</button>
+    <div id="input-area" class="input-area">
+      <input type="text" id="message-input" placeholder="Написать сообщение..." onkeypress="handleKeyPress(event)">
+      <button onclick="sendMessage()">Отправить</button>
     </div>
+
+    <!-- Боковая панель (Drawer) -->
+    <div id="overlay" class="overlay" onclick="toggleMenu()"></div>
+    <div id="drawer" class="drawer">
+      <div class="drawer-header">
+        <div class="avatar" id="user-avatar-letter">U</div>
+        <div id="drawer-username" class="drawer-username">User</div>
+      </div>
+      <div class="drawer-menu">
+        <div class="drawer-item" onclick="logout()">🚪 Выйти из аккаунта</div>
+      </div>
+    </div>
+
   </div>
 
-  <!-- Модалка видеозвонка -->
-  <div class="call-modal" id="call-modal">
-    <div class="video-grid" id="video-grid">
-      <video id="local-video" autoplay playsinline muted></video>
+  <!-- Модалка звонка -->
+  <div id="call-modal" class="modal">
+    <div class="video-container" id="video-grid">
+      <video id="local-video" autoplay muted playsinline></video>
     </div>
+    
     <div class="call-controls">
-      <button class="ctrl-btn" id="mic-btn" onclick="toggleMic()">🎤</button>
-      <button class="ctrl-btn" id="cam-btn" onclick="toggleCam()">📷</button>
-      <button class="call-end-btn" onclick="hangUp()">❌</button>
+      <button id="mic-btn" class="control-btn" onclick="toggleMic()">🎤</button>
+      <button id="cam-btn" class="control-btn" onclick="toggleCam()">📷</button>
+      <button class="control-btn hangup" onclick="hangUp()">📞</button>
     </div>
   </div>
 
-  <!-- Уведомление об инкаминге -->
-  <div class="incoming-call-box" id="incoming-call-box">
+  <!-- Плашка входящего звонка -->
+  <div id="incoming-call-box" class="incoming-call-box" style="display: none;">
     <div id="caller-name">Входящий звонок...</div>
-    <div style="display:flex; gap:10px; margin-top:10px; justify-content:center;">
-      <button class="btn" style="background:#4caf50;" onclick="answerCall()">Ответить</button>
-      <button class="btn" style="background:#e53935;" onclick="rejectCall()">Сбросить</button>
+    <div class="incoming-buttons">
+      <button onclick="answerCall()" style="background: #4caf50; color: white;">Принять</button>
+      <button onclick="rejectCall()" style="background: #f44336; color: white;">Отклонить</button>
     </div>
   </div>
 
-  <!-- Боковое меню -->
-  <div class="drawer-overlay" id="overlay" onclick="toggleMenu()"></div>
-  <div class="drawer" id="drawer">
-    <div class="drawer-header">
-      <div class="user-avatar" id="user-avatar-letter">?</div>
-      <div style="font-weight: bold;" id="drawer-username">Пользователь</div>
-    </div>
-    <div class="drawer-menu">
-      <div class="menu-item" onclick="openGlobalChat(); toggleMenu();">🌐 Общий чат</div>
-      <div class="menu-item" onclick="switchTab('directs'); toggleMenu();">💬 Личные сообщения</div>
-      <div class="menu-item" onclick="logout()" style="color:#e53935;">🚪 Выйти</div>
-    </div>
-  </div>
-
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-
-  <!-- Скрипты -->
-  <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

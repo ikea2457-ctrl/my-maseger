@@ -1,10 +1,10 @@
 const firebaseConfig = {
   apiKey: "AIzaSyBY-r3ZA7b4nhEN_Xy86Uz8_lwlVnyrhoM", // Вставь сюда свой настоящий apiKey
-  authDomain: "my-maseger.firebaseapp.com",
-  projectId: "my-maseger",
-  storageBucket: "my-maseger.appspot.com",
-  messagingSenderId: "1093153406240",
-  appId: "1:1093153406240:web:86f66345d8ef6a63507119"
+  authDomain: "appp-c5632.firebaseapp.com",
+  projectId: "appp-c5632",
+  storageBucket: "appp-c5632.firebasestorage.app",
+  messagingSenderId: "36769601467",
+  appId: "1:36769601467:web:67b0956db8cbb9cf93569e"
 };
 
 if (!firebase.apps.length) {

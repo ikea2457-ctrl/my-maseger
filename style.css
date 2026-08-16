@@ -15,7 +15,7 @@ body, html { height: 100%; width: 100%; background-color: #0f1721; color: #fff; 
 /* Шапка */
 .chat-header { height: 56px; background: #17212b; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid #0e1621; z-index: 10; }
 .header-left { display: flex; align-items: center; gap: 10px; }
-.icon-btn { background: none; border: none; color: #6c7883; font-size: 20px; cursor: pointer; padding: 6px; border-radius: 50%; }
+.icon-btn { background: none; border: none; color: #6c7883; font-size: 20px; cursor: pointer; padding: 6px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
 .icon-btn:active { background: #242f3d; }
 .chat-title { font-weight: bold; font-size: 16px; color: #fff; }
 .chat-subtitle { font-size: 11px; color: #6c7883; }
@@ -25,7 +25,7 @@ body, html { height: 100%; width: 100%; background-color: #0f1721; color: #fff; 
 .tab-btn { flex: 1; padding: 10px; background: none; border: none; color: #6c7883; font-weight: bold; font-size: 14px; cursor: pointer; border-bottom: 2px solid transparent; }
 .tab-btn.active { color: #5288c1; border-bottom-color: #5288c1; }
 
-/* Список Чатов */
+/* Список Чатов и Групп */
 .chats-list { flex: 1; overflow-y: auto; background: #0f1721; }
 .chat-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #17212b; cursor: pointer; }
 .chat-item:active { background: #17212b; }
@@ -33,6 +33,11 @@ body, html { height: 100%; width: 100%; background-color: #0f1721; color: #fff; 
 .chat-info { flex: 1; }
 .chat-name { font-weight: bold; font-size: 15px; color: #fff; }
 .chat-last-msg { font-size: 13px; color: #6c7883; margin-top: 2px; }
+
+/* Кнопки создания/входа в группы */
+.group-actions-bar { padding: 10px 12px; display: flex; gap: 8px; background: #17212b; border-bottom: 1px solid #0e1621; }
+.group-btn { flex: 1; padding: 10px; border-radius: 8px; border: none; background: #242f3d; color: #5288c1; font-weight: bold; font-size: 13px; cursor: pointer; transition: 0.2s; }
+.group-btn:active { background: #2b5278; color: #fff; }
 
 /* Сообщения */
 .chat-messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #0f1721; }
@@ -44,9 +49,10 @@ body, html { height: 100%; width: 100%; background-color: #0f1721; color: #fff; 
 /* Поле ввода */
 .chat-input-area { padding: 8px 12px; background: #17212b; display: flex; align-items: center; gap: 8px; border-top: 1px solid #0e1621; }
 .chat-input { flex: 1; padding: 10px 14px; border-radius: 20px; border: none; background: #242f3d; color: #fff; outline: none; font-size: 15px; }
-.send-btn { background: #5288c1; border: none; width: 40px; height: 40px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.send-btn { background: #5288c1; border: none; width: 40px; height: 40px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; }
+.send-btn:active { background: #4371a3; }
 
-/* Меню */
+/* Меню (Drawer) */
 .drawer { position: fixed; top: 0; left: -280px; width: 280px; height: 100%; background: #17212b; transition: 0.3s ease; z-index: 100; display: flex; flex-direction: column; }
 .drawer.open { left: 0; }
 .drawer-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; z-index: 99; }
@@ -54,8 +60,9 @@ body, html { height: 100%; width: 100%; background-color: #0f1721; color: #fff; 
 .drawer-header { padding: 20px; background: #242f3d; }
 .user-avatar { width: 50px; height: 50px; border-radius: 50%; background: #5288c1; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; margin-bottom: 10px; }
 .menu-item { padding: 14px 20px; display: flex; align-items: center; gap: 15px; color: #fff; cursor: pointer; font-size: 15px; }
+.menu-item:active { background: #242f3d; }
 
-/* Сетка Звонка */
+/* Звонок */
 .call-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0f1721; z-index: 200; display: none; flex-direction: column; }
 .call-modal.active { display: flex; }
 .video-grid { flex: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; padding: 10px; background: #000; align-items: center; justify-content: center; }
@@ -63,9 +70,16 @@ body, html { height: 100%; width: 100%; background-color: #0f1721; color: #fff; 
 #local-video { border: 2px solid #5288c1; }
 
 .call-controls { padding: 20px; display: flex; justify-content: center; gap: 15px; background: #17212b; }
-.ctrl-btn { width: 50px; height: 50px; border-radius: 50%; border: none; background: #242f3d; color: #fff; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.ctrl-btn.off { background: #e53935; }
-.call-end-btn { width: 50px; height: 50px; border-radius: 50%; border: none; background: #e53935; color: #fff; font-size: 20px; cursor: pointer; }
+.ctrl-btn { width: 52px; height: 52px; border-radius: 50%; border: none; background: #242f3d; color: #fff; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
+.ctrl-btn:active { transform: scale(0.95); }
+.ctrl-btn.off { background: #e53935; color: #fff; }
+.call-end-btn { width: 52px; height: 52px; border-radius: 50%; border: none; background: #e53935; color: #fff; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
+.call-end-btn:active { transform: scale(0.95); background: #d32f2f; }
 
 /* Входящий звонок */
-.incoming-call-box { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 320px; background: #17212b; padding: 15px; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.6); z-index: 300; display: none; flex-direction: column; text-align: center; border: 1px solid #5288c1; }
+.incoming-call-box { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 320px; background: #17212b; padding: 16px; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); z-index: 300; display: none; flex-direction: column; text-align: center; border: 1px solid #242f3d; }
+.incoming-call-box #caller-name { font-size: 15px; font-weight: bold; color: #fff; }
+.incoming-btn-accept { background: #4caf50; color: #fff; flex: 1; padding: 10px; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; }
+.incoming-btn-accept:active { background: #43a047; }
+.incoming-btn-reject { background: #e53935; color: #fff; flex: 1; padding: 10px; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; }
+.incoming-btn-reject:active { background: #d32f2f; }

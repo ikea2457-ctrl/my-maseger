@@ -2,11 +2,14 @@ let currentUser = localStorage.getItem('chat_username') || '';
 let currentChat = 'global';
 let unsubscribeListener = null;
 
-// Переменные WebRTC
+// Переменные WebRTC & Медиа
 let peerConnection = null;
 let localStream = null;
 let remoteStream = null;
 let activeCallId = null;
+
+let isMicOn = true;
+let isCamOn = true;
 
 const servers = {
   iceServers: [
@@ -19,6 +22,19 @@ document.addEventListener("DOMContentLoaded", () => {
     showChat();
   }
 });
+
+// Запрос разрешения на браузерные Push-уведомления
+function requestNotificationPermission() {
+  if ("Notification" in window && Notification.permission !== "granted") {
+    Notification.requestPermission();
+  }
+}
+
+function sendPushNotification(title, body) {
+  if ("Notification" in window && Notification.permission === "granted" && document.hidden) {
+    new Notification(title, { body: body, icon: 'https://cdn-icons-png.flaticon.com/512/906/906377.png' });
+  }
+}
 
 function login() {
   const input = document.getElementById('username-input');
@@ -41,6 +57,8 @@ function showChat() {
   document.getElementById('drawer-username').innerText = currentUser;
   document.getElementById('user-avatar-letter').innerText = currentUser[0].toUpperCase();
   
+  requestNotificationPermission();
+
   db.collection('users').doc(currentUser).set({
     name: currentUser,
     lastSeen: firebase.firestore.FieldValue.serverTimestamp()
@@ -71,7 +89,7 @@ function openGlobalChat() {
   document.getElementById('chat-title').innerText = "Общий Чат 🌐";
   document.getElementById('chat-subtitle').innerText = "все пользователи";
   document.getElementById('back-btn').style.display = 'none';
-  document.getElementById('call-btn').style.display = 'none';
+  document.getElementById('call-btn').style.display = 'block'; // Позволяет звонить в общем гугле
   document.getElementById('chats-list').style.display = 'none';
   document.getElementById('messages-container').style.display = 'flex';
   document.getElementById('input-area').style.display = 'flex';
@@ -129,12 +147,22 @@ function loadMessages() {
   if (unsubscribeListener) unsubscribeListener();
 
   const targetChatId = getChatId();
+  let initialLoad = true;
 
   unsubscribeListener = db.collection('messages')
     .onSnapshot(snapshot => {
       const container = document.getElementById('messages-container');
-      
       let messages = [];
+
+      snapshot.docChanges().forEach(change => {
+        if (change.type === 'added' && !initialLoad) {
+          const data = change.doc.data();
+          if (data.author !== currentUser && (data.chatId === targetChatId || (!data.chatId && targetChatId === 'global'))) {
+            sendPushNotification(`Сообщение от ${data.author}`, data.text);
+          }
+        }
+      });
+
       snapshot.forEach(doc => {
         const data = doc.data();
         const msgChatId = data.chatId || 'global';
@@ -159,7 +187,7 @@ function loadMessages() {
         
         msgDiv.innerHTML = `
           ${!isMe ? `<div class="msg-author" onclick="openDirectChat('${data.author}')">${data.author}</div>` : ''}
-          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align- items: center; gap: 8px;">
             <span>${data.text}</span>
             <button onclick="deleteMessage('${data.id}')" style="background:none; border:none; color:#e53935; cursor:pointer; font-size:12px; opacity:0.6;">🗑️</button>
           </div>
@@ -168,6 +196,7 @@ function loadMessages() {
       });
       
       container.scrollTop = container.scrollHeight;
+      initialLoad = false;
     });
 }
 
@@ -195,19 +224,52 @@ function handleKeyPress(e) {
   if (e.key === 'Enter') sendMessage();
 }
 
-// ---------------- WEBRTC ВИДЕОЗВОНКИ ----------------
+// ---------------- WEBRTC ВИДЕОЗВОНКИ С УПРАВЛЕНИЕМ ----------------
 
 async function setupMedia() {
   localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
   remoteStream = new MediaStream();
   
   document.getElementById('local-video').srcObject = localStream;
-  document.getElementById('remote-video').srcObject = remoteStream;
+  
+  let remoteVideo = document.getElementById('remote-video');
+  if (!remoteVideo) {
+    remoteVideo = document.createElement('video');
+    remoteVideo.id = 'remote-video';
+    remoteVideo.autoplay = true;
+    remoteVideo.playsInline = true;
+    document.getElementById('video-grid').appendChild(remoteVideo);
+  }
+  remoteVideo.srcObject = remoteStream;
+}
+
+function toggleMic() {
+  if (localStream) {
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (audioTrack) {
+      isMicOn = !isMicOn;
+      audioTrack.enabled = isMicOn;
+      const btn = document.getElementById('mic-btn');
+      btn.innerText = isMicOn ? '🎤' : '🔇';
+      btn.classList.toggle('off', !isMicOn);
+    }
+  }
+}
+
+function toggleCam() {
+  if (localStream) {
+    const videoTrack = localStream.getVideoTracks()[0];
+    if (videoTrack) {
+      isCamOn = !isCamOn;
+      videoTrack.enabled = isCamOn;
+      const btn = document.getElementById('cam-btn');
+      btn.innerText = isCamOn ? '📷' : '🚫';
+      btn.classList.toggle('off', !isCamOn);
+    }
+  }
 }
 
 async function startCall() {
-  if (currentChat === 'global') return;
-
   await setupMedia();
   document.getElementById('call-modal').classList.add('active');
 
@@ -264,15 +326,16 @@ async function startCall() {
 
 function listenForIncomingCalls() {
   db.collection('calls')
-    .where('offer.target', '==', currentUser)
+    .where('offer.target', 'in', [currentUser, 'global'])
     .onSnapshot(snapshot => {
       snapshot.docChanges().forEach(async change => {
         if (change.type === 'added') {
           const callData = change.doc.data();
-          if (callData.offer && callData.offer.status === 'pending') {
+          if (callData.offer && callData.offer.status === 'pending' && callData.offer.caller !== currentUser) {
             activeCallId = change.doc.id;
-            document.getElementById('caller-name').innerText = `Звонок от ${callData.offer.caller}`;
+            document.getElementById('caller-name').innerText = `Входящий звонок от ${callData.offer.caller}`;
             document.getElementById('incoming-call-box').style.display = 'flex';
+            sendPushNotification('Входящий звонок!', `Вам звонит ${callData.offer.caller}`);
           }
         }
       });

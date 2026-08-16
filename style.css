@@ -9,7 +9,7 @@ body, html { height: 100%; width: 100%; background-color: #0f1721; color: #fff; 
 .auth-box { background: #17212b; padding: 25px; border-radius: 16px; width: 100%; max-width: 360px; text-align: center; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
 .auth-box h2 { margin-bottom: 15px; color: #5288c1; }
 .auth-input { width: 100%; padding: 12px 15px; border-radius: 10px; border: 1px solid #242f3d; background: #242f3d; color: #fff; outline: none; margin-bottom: 15px; font-size: 16px; }
-.btn { width: 100%; padding: 12px; border-radius: 10px; border: none; background: #5288c1; color: #fff; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.2s; }
+.btn { padding: 10px 16px; border-radius: 10px; border: none; background: #5288c1; color: #fff; font-weight: bold; font-size: 15px; cursor: pointer; transition: 0.2s; }
 .btn:active { transform: scale(0.98); }
 
 /* Шапка */
@@ -55,14 +55,17 @@ body, html { height: 100%; width: 100%; background-color: #0f1721; color: #fff; 
 .user-avatar { width: 50px; height: 50px; border-radius: 50%; background: #5288c1; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; margin-bottom: 10px; }
 .menu-item { padding: 14px 20px; display: flex; align-items: center; gap: 15px; color: #fff; cursor: pointer; font-size: 15px; }
 
-/* Звонок */
-.call-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 200; display: none; flex-direction: column; }
+/* Сетка Звонка */
+.call-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0f1721; z-index: 200; display: none; flex-direction: column; }
 .call-modal.active { display: flex; }
-.video-container { flex: 1; position: relative; background: #111; }
-#remote-video { width: 100%; height: 100%; object-fit: cover; }
-#local-video { width: 100px; height: 140px; object-fit: cover; position: absolute; top: 20px; right: 20px; border-radius: 12px; border: 2px solid #fff; background: #222; }
-.call-controls { padding: 20px; display: flex; justify-content: center; background: rgba(0,0,0,0.8); }
-.call-end-btn { padding: 14px 28px; background: #e53935; border: none; border-radius: 30px; color: #fff; font-weight: bold; font-size: 16px; cursor: pointer; }
+.video-grid { flex: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; padding: 10px; background: #000; align-items: center; justify-content: center; }
+.video-grid video { width: 100%; height: 100%; max-height: 80vh; object-fit: cover; border-radius: 12px; background: #17212b; }
+#local-video { border: 2px solid #5288c1; }
+
+.call-controls { padding: 20px; display: flex; justify-content: center; gap: 15px; background: #17212b; }
+.ctrl-btn { width: 50px; height: 50px; border-radius: 50%; border: none; background: #242f3d; color: #fff; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.ctrl-btn.off { background: #e53935; }
+.call-end-btn { width: 50px; height: 50px; border-radius: 50%; border: none; background: #e53935; color: #fff; font-size: 20px; cursor: pointer; }
 
 /* Входящий звонок */
 .incoming-call-box { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 320px; background: #17212b; padding: 15px; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.6); z-index: 300; display: none; flex-direction: column; text-align: center; border: 1px solid #5288c1; }

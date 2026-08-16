@@ -31,7 +31,7 @@
         </div>
       </div>
       <div style="display:flex; gap:5px;">
-        <button class="icon-btn" id="call-btn" onclick="startCall()" style="display:none; color:#4caf50;">📞</button>
+        <button class="icon-btn" id="call-btn" onclick="startCall()" style="color:#4caf50;">📞</button>
         <button class="icon-btn" style="color:#e53935;" onclick="logout()">🚪</button>
       </div>
     </div>
@@ -57,19 +57,20 @@
 
   <!-- Модалка видеозвонка -->
   <div class="call-modal" id="call-modal">
-    <div class="video-container">
-      <video id="remote-video" autoplay playsinline></video>
+    <div class="video-grid" id="video-grid">
       <video id="local-video" autoplay playsinline muted></video>
     </div>
     <div class="call-controls">
-      <button class="call-end-btn" onclick="hangUp()">❌ Завершить</button>
+      <button class="ctrl-btn" id="mic-btn" onclick="toggleMic()">🎤</button>
+      <button class="ctrl-btn" id="cam-btn" onclick="toggleCam()">📷</button>
+      <button class="call-end-btn" onclick="hangUp()">❌</button>
     </div>
   </div>
 
   <!-- Уведомление об инкаминге -->
   <div class="incoming-call-box" id="incoming-call-box">
     <div id="caller-name">Входящий звонок...</div>
-    <div style="display:flex; gap:10px; margin-top:10px;">
+    <div style="display:flex; gap:10px; margin-top:10px; justify-content:center;">
       <button class="btn" style="background:#4caf50;" onclick="answerCall()">Ответить</button>
       <button class="btn" style="background:#e53935;" onclick="rejectCall()">Сбросить</button>
     </div>

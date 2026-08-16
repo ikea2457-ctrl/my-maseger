@@ -17,22 +17,36 @@
     </div>
   </div>
 
-  <!-- Экран Чанта -->
+  <!-- Главный Экран (Список Чатов и Сообщения) -->
   <div id="chat-screen" class="screen">
+    
+    <!-- Шапка -->
     <div class="chat-header">
       <div class="header-left">
         <button class="icon-btn" onclick="toggleMenu()">☰</button>
+        <button class="icon-btn back-btn" id="back-btn" onclick="openGlobalChat()" style="display:none;">⬅</button>
         <div>
-          <div class="chat-title">Общий Чат 🌐</div>
-          <div class="chat-subtitle">онлайн</div>
+          <div class="chat-title" id="chat-title">Общий Чат 🌐</div>
+          <div class="chat-subtitle" id="chat-subtitle">онлайн</div>
         </div>
       </div>
       <button class="icon-btn" style="color:#e53935;" onclick="logout()">🚪</button>
     </div>
 
+    <!-- Вкладки: Общий / Лички -->
+    <div class="tabs-bar" id="tabs-bar">
+      <button class="tab-btn active" id="tab-global" onclick="switchTab('global')">Общий Чат</button>
+      <button class="tab-btn" id="tab-directs" onclick="switchTab('directs')">Лички</button>
+    </div>
+
+    <!-- Список пользователей (для ЛС) -->
+    <div class="chats-list" id="chats-list" style="display: none;"></div>
+
+    <!-- Область Сообщений -->
     <div class="chat-messages" id="messages-container"></div>
 
-    <div class="chat-input-area">
+    <!-- Поле Ввода -->
+    <div class="chat-input-area" id="input-area">
       <input type="text" id="message-input" class="chat-input" placeholder="Сообщение..." onkeypress="handleKeyPress(event)">
       <button class="send-btn" onclick="sendMessage()">➤</button>
     </div>
@@ -46,6 +60,8 @@
       <div style="font-weight: bold;" id="drawer-username">Пользователь</div>
     </div>
     <div class="drawer-menu">
+      <div class="menu-item" onclick="openGlobalChat(); toggleMenu();">🌐 Общий чат</div>
+      <div class="menu-item" onclick="switchTab('directs'); toggleMenu();">💬 Личные сообщения</div>
       <div class="menu-item" onclick="alert('Раздел Игры (Дурак) в разработке!')">🃏 Игра «Дурак»</div>
       <div class="menu-item" onclick="logout()" style="color:#e53935;">🚪 Выйти из аккаунта</div>
     </div>

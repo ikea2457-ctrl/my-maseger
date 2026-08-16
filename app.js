@@ -1,6 +1,7 @@
 let currentUser = localStorage.getItem('chat_username') || '';
+let currentChat = 'global'; // 'global' или ник собеседника
+let unsubscribeListener = null;
 
-// Авто-вход при старте
 document.addEventListener("DOMContentLoaded", () => {
   if (currentUser) {
     showChat();
@@ -27,7 +28,14 @@ function showChat() {
   document.getElementById('chat-screen').classList.add('active');
   document.getElementById('drawer-username').innerText = currentUser;
   document.getElementById('user-avatar-letter').innerText = currentUser[0].toUpperCase();
-  loadMessages();
+  
+  // Регистрируем юзера в списке участников
+  db.collection('users').doc(currentUser).set({
+    name: currentUser,
+    lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+  }, { merge: true });
+
+  openGlobalChat();
 }
 
 function toggleMenu() {
@@ -35,24 +43,114 @@ function toggleMenu() {
   document.getElementById('overlay').classList.toggle('active');
 }
 
+function switchTab(tab) {
+  document.getElementById('tab-global').classList.toggle('active', tab === 'global');
+  document.getElementById('tab-directs').classList.toggle('active', tab === 'directs');
+
+  if (tab === 'global') {
+    openGlobalChat();
+  } else {
+    showDirectsList();
+  }
+}
+
+function openGlobalChat() {
+  currentChat = 'global';
+  document.getElementById('chat-title').innerText = "Общий Чат 🌐";
+  document.getElementById('chat-subtitle').innerText = "все пользователи";
+  document.getElementById('back-btn').style.display = 'none';
+  document.getElementById('chats-list').style.display = 'none';
+  document.getElementById('messages-container').style.display = 'flex';
+  document.getElementById('input-area').style.display = 'flex';
+  document.getElementById('tabs-bar').style.display = 'flex';
+  loadMessages();
+}
+
+function openDirectChat(targetUser) {
+  if (targetUser === currentUser) return; // Нельзя писать самому себе
+  currentChat = targetUser;
+  document.getElementById('chat-title').innerText = targetUser;
+  document.getElementById('chat-subtitle').innerText = "Личные сообщения";
+  document.getElementById('back-btn').style.display = 'block';
+  document.getElementById('chats-list').style.display = 'none';
+  document.getElementById('messages-container').style.display = 'flex';
+  document.getElementById('input-area').style.display = 'flex';
+  document.getElementById('tabs-bar').style.display = 'none';
+  loadMessages();
+}
+
+function showDirectsList() {
+  document.getElementById('chats-list').style.display = 'block';
+  document.getElementById('messages-container').style.display = 'none';
+  document.getElementById('input-area').style.display = 'none';
+
+  db.collection('users').get().then(snapshot => {
+    const list = document.getElementById('chats-list');
+    list.innerHTML = '';
+    snapshot.forEach(doc => {
+      const user = doc.data();
+      if (user.name !== currentUser) {
+        const item = document.createElement('div');
+        item.className = 'chat-item';
+        item.onclick = () => openDirectChat(user.name);
+        item.innerHTML = `
+          <div class="chat-avatar">${user.name[0].toUpperCase()}</div>
+          <div class="chat-info">
+            <div class="chat-name">${user.name}</div>
+            <div class="chat-last-msg">Нажми, чтобы открыть ЛС</div>
+          </div>
+        `;
+        list.appendChild(item);
+      }
+    });
+  });
+}
+
+// Генерация уникального ID для личного чата двух людей
+function getChatId() {
+  if (currentChat === 'global') return 'global';
+  return [currentUser, currentChat].sort().join('_');
+}
+
 function loadMessages() {
-  db.collection('messages').orderBy('timestamp', 'asc')
+  if (unsubscribeListener) unsubscribeListener();
+
+  const chatId = getChatId();
+
+  unsubscribeListener = db.collection('messages')
+    .where('chatId', '==', chatId)
     .onSnapshot(snapshot => {
       const container = document.getElementById('messages-container');
-      container.innerHTML = '';
+      
+      let messages = [];
       snapshot.forEach(doc => {
         const data = doc.data();
+        messages.push({
+          id: doc.id,
+          author: data.author || 'Аноним',
+          text: data.text || '',
+          timestamp: data.timestamp ? data.timestamp.toMillis() : Date.now()
+        });
+      });
+
+      messages.sort((a, b) => a.timestamp - b.timestamp);
+
+      container.innerHTML = '';
+      messages.forEach(data => {
         const isMe = data.author === currentUser;
-        
         const msgDiv = document.createElement('div');
         msgDiv.className = `msg ${isMe ? 'outgoing' : 'incoming'}`;
         
         msgDiv.innerHTML = `
-          ${!isMe ? `<div class="msg-author">${data.author || 'Аноним'}</div>` : ''}
-          <div>${data.text}</div>
+          ${!isMe ? `<div class="msg-author" onclick="openDirectChat('${data.author}')">${data.author}</div>` : ''}
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+            <span>${data.text}</span>
+            <button onclick="deleteMessage('${data.id}')" style="background:none; border:none; color:#e53935; cursor:pointer; font-size:12px; opacity:0.6;">🗑️</button>
+          </div>
         `;
         container.appendChild(msgDiv);
       });
+      
       container.scrollTop = container.scrollHeight;
     });
 }
@@ -62,11 +160,18 @@ function sendMessage() {
   const text = input.value.trim();
   if (text) {
     db.collection('messages').add({
+      chatId: getChatId(),
       text: text,
       author: currentUser,
       timestamp: firebase.firestore.FieldValue.serverTimestamp()
     });
     input.value = '';
+  }
+}
+
+function deleteMessage(id) {
+  if (confirm("Удалить сообщение?")) {
+    db.collection('messages').doc(id).delete();
   }
 }
 

@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TG Messenger</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+        body { background: #0e1621; color: #fff; display: flex; justify-content: center; height: 100vh; overflow: hidden; }
+        .app-container { width: 100%; max-width: 420px; background: #17212b; display: flex; flex-direction: column; border-left: 1px solid #2b5278; border-right: 1px solid #2b5278; position: relative; }
+        
+        .auth-screen { padding: 24px; display: flex; flex-direction: column; justify-content: center; height: 100%; gap: 16px; }
+        .auth-screen h2 { text-align: center; color: #5288c1; }
+        .input-group { display: flex; flex-direction: column; gap: 6px; }
+        .input-group label { font-size: 12px; color: #6c7883; }
+        .input-group input { background: #242f3d; border: 1px solid #2b5278; padding: 12px; border-radius: 8px; color: #fff; outline: none; }
+        .btn-main { background: #5288c1; color: #fff; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+
+        .main-screen { display: none; flex-direction: column; height: 100%; }
+        .top-bar { background: #242f3d; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #10171e; }
+        
+        .search-box { padding: 10px; background: #17212b; border-bottom: 1px solid #242f3d; }
+        .search-box input { width: 100%; background: #242f3d; border: 1px solid #2b5278; padding: 8px 12px; border-radius: 16px; color: #fff; outline: none; font-size: 14px; }
+
+        .chat-list { flex-grow: 1; overflow-y: auto; }
+        .chat-item { padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #10171e; cursor: pointer; }
+        .chat-item:hover { background: #202b36; }
+
+        .chat-screen { display: none; flex-direction: column; height: 100%; }
+        .chat-header { background: #242f3d; padding: 10px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #10171e; }
+        .btn-back { background: none; border: none; color: #5288c1; font-size: 18px; cursor: pointer; font-weight: bold; }
+        
+        .chat-body { flex-grow: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; background: #0e1621; }
+        .msg { max-width: 75%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-wrap: break-word; }
+        .msg-in { background: #182533; align-self: flex-start; border-bottom-left-radius: 4px; }
+        .msg-out { background: #2b5278; align-self: flex-end; border-bottom-right-radius: 4px; }
+        .sender-name { font-size: 11px; color: #5288c1; font-weight: bold; margin-bottom: 2px; }
+        .time { font-size: 10px; color: #7f91a4; float: right; margin-left: 8px; margin-top: 4px; }
+        
+        .input-area { padding: 10px; background: #17212b; display: flex; gap: 8px; align-items: center; }
+        .input-area input { flex-grow: 1; background: #242f3d; border: none; padding: 12px; border-radius: 20px; color: #fff; outline: none; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <!-- АВТОРИЗАЦИЯ -->
+    <div class="auth-screen" id="auth-block">
+        <h2>Вход в Messenger</h2>
+        <div class="input-group">
+            <label>Твой никнейм (@username)</label>
+            <input type="text" id="reg-id" placeholder="@nick">
+        </div>
+        <button class="btn-main" onclick="login()">Войти</button>
+    </div>
+
+    <!-- СПИСОК ЧАТОВ И ПОИСК -->
+    <div class="main-screen" id="main-block">
+        <div class="top-bar">
+            <div>
+                <div style="font-size:16px; font-weight:600;">Чаты</div>
+                <div id="my-nick-display" style="font-size:11px; color:#6c7883;">--</div>
+            </div>
+            <button onclick="logout()" style="background:none; border:none; color:#e53935; cursor:pointer;">Выход</button>
+        </div>
+        <div class="search-box">
+            <input type="text" id="search-input" placeholder="🔍 Поиск по нику (@nick)..." oninput="filterChats()">
+        </div>
+        <div class="chat-list" id="chat-list">
+            <!-- Общий чат по умолчанию -->
+            <div class="chat-item" onclick="openChat('global', 'Общий Чат 🌐')">
+                <div>
+                    <div style="font-weight: bold;">Общий Чат 🌐</div>
+                    <div style="font-size: 12px; color: #6c7883;">Публичные сообщения</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ОКНО ЧАТА -->
+    <div class="chat-screen" id="chat-block">
+        <div class="chat-header">
+            <button class="btn-back" onclick="closeChat()">←</button>
+            <div style="flex-grow:1;">
+                <div id="active-chat-title" style="font-size:15px; font-weight:600;">Чат</div>
+            </div>
+        </div>
+
+        <div class="chat-body" id="messages-container"></div>
+
+        <div class="input-area">
+            <input type="text" id="msg-input" placeholder="Сообщение..." onkeypress="if(event.key==='Enter') sendMsg()">
+            <button class="btn-main" style="width:40px; height:40px; border-radius:50%;" onclick="sendMsg()">➤</button>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyBY-r3ZA7b4nhEN_Xy86Uz8_lwlVnyrhoM",
+        authDomain: "appp-c5632.firebaseapp.com",
+        projectId: "appp-c5632",
+        storageBucket: "appp-c5632.firebasestorage.app",
+        messagingSenderId: "36769601467",
+        appId: "1:36769601467:web:67b0956db8cbb9cf93569e",
+        measurementId: "G-2KRKJ0P0LV"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    let myNick = localStorage.getItem('chat_user_nick') || null;
+    let activeChatId = null;
+    let unsubscribe = null;
+    let allKnownUsers = new Set();
+
+    window.login = function() {
+        const nick = document.getElementById('reg-id').value.trim();
+        if (!nick) return alert('Введи ник!');
+        myNick = nick.startsWith('@') ? nick.toLowerCase() : '@' + nick.toLowerCase();
+        localStorage.setItem('chat_user_nick', myNick);
+        showMainScreen();
+    };
+
+    window.logout = function() {
+        localStorage.removeItem('chat_user_nick');
+        myNick = null;
+        document.getElementById('auth-block').style.display = 'flex';
+        document.getElementById('main-block').style.display = 'none';
+        document.getElementById('chat-block').style.display = 'none';
+    };
+
+    function showMainScreen() {
+        document.getElementById('auth-block').style.display = 'none';
+        document.getElementById('main-block').style.display = 'flex';
+        document.getElementById('chat-block').style.display = 'none';
+        document.getElementById('my-nick-display').innerText = 'Мой ник: ' + myNick;
+        listenForGlobalUsers();
+    }
+
+    // Слушаем базу, чтобы считывать ники других пользователей для списка/поиска
+    function listenForGlobalUsers() {
+        const q = query(collection(db, "messages"), orderBy("timestamp", "asc"));
+        onSnapshot(q, (snapshot) => {
+            snapshot.forEach((doc) => {
+                const sender = doc.data().sender;
+                if (sender && sender !== myNick) {
+                    allKnownUsers.add(sender);
+                }
+            });
+            renderChatList();
+        });
+    }
+
+    function renderChatList() {
+        const listContainer = document.getElementById('chat-list');
+        const filterText = document.getElementById('search-input').value.trim().toLowerCase();
+
+        listContainer.innerHTML = `
+            <div class="chat-item" onclick="openChat('global', 'Общий Чат 🌐')">
+                <div>
+                    <div style="font-weight: bold;">Общий Чат 🌐</div>
+                    <div style="font-size: 12px; color: #6c7883;">Публичные сообщения</div>
+                </div>
+            </div>
+        `;
+
+        allKnownUsers.forEach((userNick) => {
+            if (userNick.includes(filterText)) {
+                // Создаем уникальный ID диалога между двумя пользователями
+                const chatId = [myNick, userNick].sort().join('_PM_');
+                listContainer.innerHTML += `
+                    <div class="chat-item" onclick="openChat('${chatId}', '${userNick}')">
+                        <div>
+                            <div style="font-weight: bold;">${userNick}</div>
+                            <div style="font-size: 12px; color: #6c7883;">ЛС</div>
+                        </div>
+                    </div>
+                `;
+            }
+        });
+
+        // Если введён новый ник, которого ещё нет в истории — даём вариант открыть ЛС
+        if (filterText && filterText.startsWith('@') && filterText !== myNick && !allKnownUsers.has(filterText)) {
+            const chatId = [myNick, filterText].sort().join('_PM_');
+            listContainer.innerHTML += `
+                <div class="chat-item" onclick="openChat('${chatId}', '${filterText}')">
+                    <div>
+                        <div style="font-weight: bold;">Написать ${filterText}</div>
+                        <div style="font-size: 12px; color: #5288c1;">Открыть новый диалог</div>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    window.filterChats = function() {
+        renderChatList();
+    };
+
+    window.openChat = function(chatId, title) {
+        activeChatId = chatId;
+        document.getElementById('main-block').style.display = 'none';
+        document.getElementById('chat-block').style.display = 'flex';
+        document.getElementById('active-chat-title').innerText = title;
+
+        if (unsubscribe) unsubscribe();
+
+        const collectionName = chatId === 'global' ? 'messages' : `chats/${chatId}/messages`;
+        const q = query(collection(db, collectionName), orderBy("timestamp", "asc"));
+
+        unsubscribe = onSnapshot(q, (snapshot) => {
+            const container = document.getElementById('messages-container');
+            container.innerHTML = '';
+
+            snapshot.forEach((doc) => {
+                const data = doc.data();
+                const isMe = data.sender === myNick;
+                const time = data.timestamp ? new Date(data.timestamp.toDate()).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '...';
+
+                container.innerHTML += `
+                    <div class="msg ${isMe ? 'msg-out' : 'msg-in'}">
+                        ${!isMe ? `<div class="sender-name">${data.sender}</div>` : ''}
+                        ${data.text}
+                        <span class="time">${time}</span>
+                    </div>
+                `;
+            });
+            container.scrollTop = container.scrollHeight;
+        });
+    };
+
+    window.closeChat = function() {
+        document.getElementById('chat-block').style.display = 'none';
+        document.getElementById('main-block').style.display = 'flex';
+        if (unsubscribe) unsubscribe();
+        activeChatId = null;
+    };
+
+    window.sendMsg = async function() {
+        const input = document.getElementById('msg-input');
+        const text = input.value.trim();
+        if (!text || !myNick || !activeChatId) return;
+
+        input.value = '';
+        const collectionName = activeChatId === 'global' ? 'messages' : `chats/${activeChatId}/messages`;
+
+        await addDoc(collection(db, collectionName), {
+            text: text,
+            sender: myNick,
+            timestamp: serverTimestamp()
+        });
+    };
+
+    if (myNick) showMainScreen();
+</script>
+</body>
+</html>

@@ -2,186 +2,232 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Messenger & Durak Online</title>
-  <link rel="stylesheet" href="style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Мессенджер</title>
+  
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+    body { background-color: #121212; color: #fff; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Окна входа */
+    .screen { display: none; height: 100vh; width: 100%; }
+    .screen.active { display: flex; }
+    #auth-screen { justify-content: center; align-items: center; background: #1a1a1a; }
+    .auth-card { background: #242424; padding: 24px; border-radius: 12px; width: 90%; max-width: 360px; text-align: center; }
+    .auth-tabs { display: flex; margin-bottom: 15px; gap: 8px; }
+    .auth-tab { flex: 1; padding: 8px; background: #333; border: none; color: #aaa; cursor: pointer; border-radius: 6px; }
+    .auth-tab.active { background: #0088cc; color: #fff; }
+    .auth-input { width: 100%; padding: 10px; margin-bottom: 10px; background: #1a1a1a; border: 1px solid #444; color: #fff; border-radius: 6px; }
+    .auth-btn { width: 100%; padding: 10px; background: #0088cc; border: none; color: #fff; font-weight: bold; border-radius: 6px; cursor: pointer; }
+
+    /* Главный интерфейс чата */
+    #chat-screen { flex-direction: column; height: 100vh; position: relative; }
+    header { height: 56px; background: #242424; display: flex; align-items: center; padding: 0 12px; gap: 12px; border-bottom: 1px solid #333; }
+    .header-btn { background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; }
+    .header-avatar { width: 36px; height: 36px; border-radius: 50%; background: #333; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .header-title { font-size: 18px; font-weight: bold; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* Табы навигации */
+    .tabs-bar { display: flex; background: #1e1e1e; border-bottom: 1px solid #333; }
+    .tab-btn { flex: 1; padding: 10px; background: none; border: none; color: #888; font-weight: bold; cursor: pointer; }
+    .tab-btn.active { color: #0088cc; border-bottom: 2px solid #0088cc; }
+
+    /* Сообщения и Списки */
+    #chats-list { flex: 1; overflow-y: auto; background: #121212; display: none; }
+    .search-box { padding: 8px; background: #1e1e1e; }
+    .chat-item { display: flex; padding: 10px 12px; gap: 12px; align-items: center; border-bottom: 1px solid #222; cursor: pointer; }
+    .chat-item:hover { background: #1a1a1a; }
+    .avatar-box { width: 44px; height: 44px; border-radius: 50%; background: #333; display: flex; align-items: center; justify-content: center; font-size: 20px; overflow: hidden; flex-shrink: 0; }
+    .chat-item-info { flex: 1; min-width: 0; }
+    .chat-item-top { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .chat-item-name { font-weight: bold; font-size: 15px; }
+    .chat-item-time { font-size: 12px; color: #666; }
+    .chat-item-lastmsg { font-size: 13px; color: #aaa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    #messages-container { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #0f0f0f; }
+    .message { max-width: 75%; background: #242424; padding: 8px 12px; border-radius: 12px; align-self: flex-start; word-break: break-word; }
+    .message.my { background: #005c8a; align-self: flex-end; }
+    .msg-img { max-width: 100%; border-radius: 8px; margin-top: 4px; }
+    .circle-video { width: 160px; height: 160px; border-radius: 50%; object-fit: cover; margin-top: 4px; }
+
+    /* Поле ввода */
+    #search-bar { display: none; padding: 8px; background: #1e1e1e; }
+    #reply-preview { display: none; padding: 6px 12px; background: #1a1a1a; border-left: 3px solid #0088cc; justify-content: space-between; align-items: center; font-size: 13px; }
+    #input-area { padding: 8px; background: #242424; display: flex; gap: 8px; align-items: center; }
+    .input-btn { background: none; border: none; color: #aaa; font-size: 20px; cursor: pointer; }
+    #message-input { flex: 1; padding: 10px; background: #1a1a1a; border: 1px solid #333; color: #fff; border-radius: 20px; outline: none; }
+
+    /* Боковое меню (Drawer) */
+    #drawer { position: fixed; top: 0; left: -280px; width: 280px; height: 100%; background: #1e1e1e; z-index: 100; transition: left 0.3s ease; display: flex; flex-direction: column; }
+    #drawer.active { left: 0; }
+    .drawer-header { padding: 20px; background: #242424; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #333; }
+    .drawer-menu { flex: 1; padding: 10px 0; }
+    .drawer-item { padding: 12px 20px; display: flex; align-items: center; gap: 12px; cursor: pointer; color: #ddd; }
+    .drawer-item:hover { background: #282828; }
+    #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 90; display: none; }
+    #overlay.active { display: block; }
+
+    /* Модалки */
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 200; justify-content: center; align-items: center; }
+    .modal.active { display: flex; }
+    .modal-content { background: #242424; padding: 20px; border-radius: 12px; width: 90%; max-width: 400px; max-height: 90vh; overflow-y: auto; }
+
+    /* Карты Дурака */
+    .durak-card { display: inline-block; width: 45px; height: 65px; background: #fff; color: #000; border-radius: 4px; padding: 4px; font-weight: bold; text-align: center; margin: 3px; cursor: pointer; user-select: none; }
+    .durak-card.red { color: #d00; }
+  </style>
 </head>
 <body>
 
-  <!-- Экран авторизации -->
-  <div id="auth-screen" class="active">
-    <div class="auth-box">
-      <h2>Вход / Регистрация</h2>
-      <div class="tabs">
-        <button id="btn-show-login" class="active" type="button">Вход</button>
-        <button id="btn-show-reg" type="button">Регистрация</button>
+  <!-- Экран Авторизации -->
+  <div id="auth-screen" class="screen active">
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button id="btn-show-login" class="auth-tab active">Вход</button>
+        <button id="btn-show-reg" class="auth-tab">Регистрация</button>
       </div>
-
-      <input type="text" id="auth-username" placeholder="Логин (никнейм)" autocomplete="username" />
-      <input type="password" id="auth-password" placeholder="Пароль" autocomplete="current-password" />
-
+      <input type="text" id="auth-username" class="auth-input" placeholder="Логин">
+      <input type="password" id="auth-password" class="auth-input" placeholder="Пароль">
+      
       <div id="reg-extra-fields" style="display: none;">
-        <input type="text" id="reg-display-name" placeholder="Отображаемое имя" />
-        <input type="text" id="reg-avatar-emoji" placeholder="Эмодзи-аватар (например, 🚀)" />
-        <label style="font-size:12px; color:#aaa; margin-top:5px; display:block;">Или загрузи аватарку:</label>
-        <input type="file" id="reg-avatar-file" accept="image/*" />
+        <input type="text" id="reg-display-name" class="auth-input" placeholder="Имя профиля (Ник)">
+        <input type="text" id="reg-avatar-emoji" class="auth-input" placeholder="Эмодзи-аватар (напр. 🚀)">
+        <label style="display:block; text-align:left; font-size:12px; margin-bottom:4px; color:#aaa;">Или фото аватара:</label>
+        <input type="file" id="reg-avatar-file" class="auth-input" accept="image/*">
       </div>
 
-      <button id="auth-submit-btn" class="btn primary" type="button">Войти</button>
+      <button id="auth-submit-btn" class="auth-btn">Войти</button>
     </div>
   </div>
 
-  <!-- Главный экран чата -->
-  <div id="chat-screen" style="display:none;">
+  <!-- Главный экран Чата -->
+  <div id="chat-screen" class="screen">
+    <header>
+      <button class="header-btn" onclick="window.toggleMenu()">☰</button>
+      <button id="back-btn" class="header-btn" style="display:none;" onclick="window.switchTab('directs')">←</button>
+      <div class="header-avatar" id="chat-header-avatar">🌐</div>
+      <div class="header-title" id="chat-title">Общий Чат 🌐</div>
+      <button class="header-btn" onclick="window.toggleSearch()">🔍</button>
+      <button class="header-btn" onclick="window.startOrJoinGroupCall()">📞</button>
+    </header>
 
-    <!-- Боковое меню (Drawer) -->
-    <div id="drawer">
-      <div class="drawer-header">
-        <div id="drawer-avatar-box" class="avatar-box">👤</div>
-        <div id="drawer-displayname">User Name</div>
-        <div id="drawer-username">@username</div>
-      </div>
-      <div class="drawer-menu">
-        <button onclick="window.openProfileModal()">✏️ Редактировать профиль</button>
-        <button onclick="window.logout()">🚪 Выйти</button>
-      </div>
-    </div>
-    <div id="overlay" onclick="window.toggleMenu()"></div>
-
-    <!-- Верхняя шапка -->
-    <div id="chat-header">
-      <button class="icon-btn" onclick="window.toggleMenu()">☰</button>
-      <button class="icon-btn" id="back-btn" style="display:none;" onclick="window.switchTab('directs')">⬅️</button>
-      
-      <div id="chat-header-avatar" class="avatar-box">🌐</div>
-      <div class="chat-info">
-        <div id="chat-title">Общий Чат 🌐</div>
-        <div id="chat-subtitle">онлайн</div>
-      </div>
-
-      <button class="icon-btn" onclick="window.startOrJoinGroupCall()">📞</button>
-      <button class="icon-btn" onclick="window.openDurakInviteModal()">🃏</button>
-      <button class="icon-btn" onclick="window.toggleSearch()">🔍</button>
-    </div>
-
-    <!-- Табы чатов -->
-    <div id="tabs-bar">
-      <button id="tab-global" class="active" onclick="window.switchTab('global')">🌐 Общий чат</button>
-      <button id="tab-directs" onclick="window.switchTab('directs')">💬 Личные сообщения</button>
+    <div class="tabs-bar">
+      <button id="tab-global" class="tab-btn active" onclick="window.switchTab('global')">Общий Чат</button>
+      <button id="tab-directs" class="tab-btn" onclick="window.switchTab('directs')">Личные</button>
     </div>
 
     <!-- Поиск по сообщениям -->
-    <div id="search-bar" style="display:none;">
-      <input type="text" id="search-input" placeholder="Поиск сообщений..." oninput="window.searchMessages()">
+    <div id="search-bar">
+      <input type="text" id="search-input" class="auth-input" placeholder="Поиск сообщения..." oninput="window.searchMessages()" style="margin:0;">
     </div>
 
-    <!-- Список ЛС -->
-    <div id="chats-list" style="display:none;">
-      <input type="text" id="user-search-input" placeholder="Поиск пользователя..." oninput="window.filterUsersList()">
+    <!-- Список диалогов (ЛС) -->
+    <div id="chats-list">
+      <div class="search-box">
+        <input type="text" id="user-search-input" class="auth-input" placeholder="Поиск юзера по логину..." oninput="window.filterUsersList()" style="margin:0;">
+      </div>
       <div id="users-container"></div>
     </div>
 
-    <!-- Превью ответа -->
-    <div id="reply-preview" style="display:none;">
-      <span id="reply-preview-text"></span>
-      <button onclick="window.cancelReply()">❌</button>
-    </div>
-
-    <!-- Контейнер сообщений -->
+    <!-- Контейнер Сообщений -->
     <div id="messages-container"></div>
 
-    <!-- Строка ввода -->
+    <!-- Предпросмотр ответа -->
+    <div id="reply-preview">
+      <span id="reply-preview-text"></span>
+      <button onclick="window.cancelReply()" style="background:none; border:none; color:#fff; cursor:pointer;">✕</button>
+    </div>
+
+    <!-- Поле Ввода -->
     <div id="input-area">
-      <button id="voice-btn" onclick="window.toggleVoiceRecord()">🎙️</button>
-      <button id="circle-btn" onclick="window.toggleCircleRecord()">📹</button>
-
-      <input type="text" id="message-input" placeholder="Сообщение..." onkeypress="window.handleKeyPress(event)" oninput="window.handleTyping()">
-
-      <label for="img-file-input" class="attach-btn">📎</label>
-      <input type="file" id="img-file-input" accept="image/*" style="display:none;" onchange="window.sendImage(event)">
-
-      <button onclick="window.sendMessage()" class="send-btn">➤</button>
+      <label class="input-btn" style="cursor:pointer;">
+        📷
+        <input type="file" accept="image/*" style="display:none;" onchange="window.sendImage(event)">
+      </label>
+      <button class="input-btn" id="voice-btn" onclick="window.toggleVoiceRecord()">🎙️</button>
+      <button class="input-btn" id="circle-btn" onclick="window.toggleCircleRecord()">📹</button>
+      <input type="text" id="message-input" placeholder="Написать сообщение..." onkeypress="window.handleKeyPress(event)" oninput="window.handleTyping()">
+      <button class="input-btn" onclick="window.sendMessage()" style="color:#0088cc;">➔</button>
     </div>
   </div>
 
-  <!-- Модалка профиля -->
+  <!-- Боковое меню -->
+  <div id="overlay" onclick="window.toggleMenu()"></div>
+  <div id="drawer">
+    <div class="drawer-header">
+      <div class="avatar-box" id="drawer-avatar-box">👤</div>
+      <div>
+        <div id="drawer-displayname" style="font-weight:bold;">Имя</div>
+        <div id="drawer-username" style="font-size:12px; color:#aaa;">@username</div>
+      </div>
+    </div>
+    <div class="drawer-menu">
+      <div class="drawer-item" onclick="window.openProfileModal()">✏️ Настройки профиля</div>
+      <div class="drawer-item" onclick="window.openDurakInviteModal()">🃏 Сыграть в Дурака</div>
+      <div class="drawer-item" onclick="window.logout()" style="color:#ff4d4d;">🚪 Выйти</div>
+    </div>
+  </div>
+
+  <!-- Модалка Профиля -->
   <div id="profile-modal" class="modal">
     <div class="modal-content">
-      <h3>Редактирование профиля</h3>
-      <input type="text" id="edit-display-name" placeholder="Новое имя" />
-      <input type="text" id="edit-avatar-emoji" placeholder="Новый эмодзи-аватар" />
-      <label>Изменить фото:</label>
-      <input type="file" id="edit-avatar-file" accept="image/*" />
-      <button onclick="window.saveProfileChanges()" class="btn primary">Сохранить</button>
-      <button onclick="window.closeProfileModal()" class="btn">Отмена</button>
+      <h3 style="margin-bottom:15px;">Редактировать профиль</h3>
+      <input type="text" id="edit-display-name" class="auth-input" placeholder="Новое имя (Ник)">
+      <input type="text" id="edit-avatar-emoji" class="auth-input" placeholder="Новый эмодзи-аватар">
+      <label style="display:block; font-size:12px; margin-bottom:4px; color:#aaa;">Или загрузить новое фото:</label>
+      <input type="file" id="edit-avatar-file" class="auth-input" accept="image/*">
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="auth-btn" onclick="window.saveProfileChanges()">Сохранить</button>
+        <button class="auth-btn" onclick="window.closeProfileModal()" style="background:#444;">Отмена</button>
+      </div>
     </div>
   </div>
 
   <!-- Модалка Дурака -->
   <div id="durak-modal" class="modal">
-    <div class="modal-content" style="max-width: 500px; width: 95%;">
-      <h3>🃏 Игра в Дурака</h3>
+    <div class="modal-content">
+      <h3 style="margin-bottom:10px;">Дурак Онлайн</h3>
       <div id="durak-setup">
-        <p>Выберите размер колоды:</p>
         <label><input type="radio" name="deck-size" value="54" checked> 54 карты</label><br>
         <label><input type="radio" name="deck-size" value="108"> 108 карт</label><br><br>
-        <button onclick="window.createDurakGame()" class="btn primary">Создать игру</button>
+        <button class="auth-btn" onclick="window.createDurakGame()">Создать игру</button>
       </div>
-
-      <div id="durak-table" style="display:none;">
-        <div id="durak-trump-info"></div>
-        <div id="durak-deck-count"></div>
-        <div id="durak-turn-info"></div>
-        <div id="durak-opponent-hand"></div>
-        <div id="durak-board"></div>
+      <div id="durak-table" style="display:none; text-align:center;">
+        <div id="durak-trump-info" style="margin-bottom:5px;"></div>
+        <div id="durak-deck-count" style="margin-bottom:5px;"></div>
+        <div id="durak-turn-info" style="font-weight:bold; color:#0088cc; margin-bottom:100px;"></div>
+        <div id="durak-board" style="min-height:75px; border:1px dashed #555; margin-bottom:10px; padding:5px;"></div>
         <div id="durak-my-hand"></div>
-        <div class="durak-actions">
-          <button id="durak-action-btn" class="btn primary" onclick="window.handleDurakAction()">Беру / Бито</button>
-        </div>
+        <button class="auth-btn" onclick="window.handleDurakAction()" style="margin-top:10px;">Бито / Беру</button>
       </div>
-      <br>
-      <button onclick="window.closeDurakModal()" class="btn">Выйти</button>
+      <button class="auth-btn" onclick="window.closeDurakModal()" style="background:#444; margin-top:10px;">Закрыть</button>
     </div>
   </div>
 
-  <!-- Модалка звонка -->
+  <!-- Модалка Звонка -->
   <div id="call-modal" class="modal">
-    <div class="modal-content">
-      <h3>Групповой / Личный звонок</h3>
-      <video id="local-video" autoplay muted style="width:100%; max-height:200px; border-radius:8px; background:#000;"></video>
-      <div id="remote-videos"></div>
-      <div style="margin-top:10px;">
-        <button onclick="window.toggleMic()" id="mic-btn">🎤</button>
-        <button onclick="window.toggleCam()" id="cam-btn">📷</button>
-        <button onclick="window.hangUpGroupCall()" class="btn red">Завершить</button>
+    <div class="modal-content" style="text-align:center;">
+      <h3>Групповой звонок</h3>
+      <video id="local-video" autoplay muted playsinline style="width:100%; height:200px; background:#000; border-radius:8px; margin:10px 0; object-fit:cover;"></video>
+      <div style="display:flex; justify-content:center; gap:10px;">
+        <button class="input-btn" onclick="window.toggleMic()">🎙️</button>
+        <button class="input-btn" onclick="window.toggleCam()">📹</button>
+        <button class="auth-btn" onclick="window.hangUpGroupCall()" style="background:#ff4d4d; width:auto; padding:8px 16px;">Завершить</button>
       </div>
     </div>
   </div>
 
-  <!-- Уведомление о входящем звонке -->
-  <div id="incoming-call-box" style="display:none;">
-    <span id="caller-name">Звонок...</span>
-    <button onclick="window.answerCall()" class="btn green">Принять</button>
-    <button onclick="window.rejectCall()" class="btn red">Сбросить</button>
+  <div id="incoming-call-box" style="display:none; position:fixed; bottom:20px; right:20px; background:#242424; padding:15px; border-radius:8px; border:1px solid #0088cc; z-index:300;">
+    <div>Входящий звонок...</div>
+    <button onclick="window.answerCall()" style="background:green; color:#fff; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">Ответить</button>
+    <button onclick="window.rejectCall()" style="background:red; color:#fff; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">Отклонить</button>
   </div>
 
-  <!-- Firebase SDK (v8) -->
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
-  
-  <!-- Конфиг Firebase -->
-  <script src="firebase-config.js"></script>
-
-  <!-- Основная логика -->
+  <!-- Подключаем твой JS файл -->
   <script src="app.js"></script>
-
-  <!-- PWA Service Worker -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js')
-        .then(reg => console.log('Service Worker зарегистрирован:', reg.scope))
-        .catch(err => console.error('Ошибка регистрации SW:', err));
-    }
-  </script>
 </body>
 </html>

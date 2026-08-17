@@ -10,6 +10,9 @@ let replyMessage = null;
 let unsubscribeMessages = null;
 let allLoadedChats = [];
 
+// Кэш профилей пользователей для аватарок и ников
+const usersCache = new Map();
+
 // Медиа
 let mediaRecorder = null;
 let audioChunks = [];
@@ -131,7 +134,8 @@ window.handleAuth = async function() {
       const avatarEmoji = document.getElementById('reg-avatar-emoji').value.trim() || '🚀';
       let avatarUrl = '';
 
-      const avatarFile = document.getElementById('reg-avatar-file').files[0];
+      const avatarFileInput = document.getElementById('reg-avatar-file');
+      const avatarFile = avatarFileInput ? avatarFileInput.files[0] : null;
       if (avatarFile) {
         avatarUrl = await convertFileToBase64(avatarFile);
       }
@@ -168,7 +172,20 @@ function showChatScreen() {
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('chat-screen').style.display = 'flex';
   updateDrawerUI();
+  preloadUsersCache();
   window.switchTab('global');
+}
+
+// Кэширование всех аккаунтов для быстрого кастомного рендера аватарок и ников
+async function preloadUsersCache() {
+  try {
+    const snapshot = await db.collection('users').get();
+    snapshot.forEach(doc => {
+      usersCache.set(doc.id, doc.data());
+    });
+  } catch (e) {
+    console.error("❌ Ошибка при загрузке профилей:", e);
+  }
 }
 
 // ==========================================
@@ -192,6 +209,10 @@ function renderAvatar(userObj, targetElement) {
   if (userObj && userObj.avatarUrl) {
     const img = document.createElement('img');
     img.src = userObj.avatarUrl;
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'cover';
+    img.style.borderRadius = '50%';
     targetElement.appendChild(img);
   } else {
     targetElement.innerText = (userObj && userObj.avatarEmoji) ? userObj.avatarEmoji : '👤';
@@ -271,6 +292,7 @@ async function loadDirectsList() {
     accountsSnapshot.forEach(doc => {
       if (chatsMap.has(doc.id)) {
         const userData = doc.data();
+        usersCache.set(doc.id, userData);
         const chatMetaData = chatsMap.get(doc.id);
         allLoadedChats.push({
           ...userData,
@@ -331,6 +353,7 @@ window.filterUsersList = async function() {
 
   snapshot.forEach(doc => {
     const u = doc.data();
+    usersCache.set(doc.id, u);
     if (u.username !== currentUser.username && (u.username.toLowerCase().includes(query) || (u.displayName && u.displayName.toLowerCase().includes(query)))) {
       searchResults.push({
         ...u,
@@ -368,21 +391,39 @@ function listenMessages(chatId) {
   unsubscribeMessages = db.collection('messages')
     .where('chatId', '==', chatId)
     .orderBy('timestamp', 'asc')
-    .onSnapshot(snapshot => {
+    .onSnapshot(async snapshot => {
       container.innerHTML = '';
-      snapshot.forEach(doc => {
-        renderMessageItem(doc.data(), doc.id);
-      });
+      for (const doc of snapshot.docs) {
+        await renderMessageItem(doc.data(), doc.id);
+      }
       container.scrollTop = container.scrollHeight;
     }, err => console.error("❌ Ошибка сообщений:", err));
 }
 
-function renderMessageItem(msg, id) {
+async function renderMessageItem(msg, id) {
   const container = document.getElementById('messages-container');
   const div = document.createElement('div');
-  div.className = `message ${msg.sender === currentUser.username ? 'my' : ''}`;
+  const isMy = msg.sender === currentUser.username;
+  div.className = `message ${isMy ? 'my' : ''}`;
 
-  let contentHtml = `<div class="msg-author">${escapeHtml(msg.senderName || msg.sender)}</div>`;
+  // Вытягиваем актуальную аву и кастомный ник автора из кэша
+  let authorData = usersCache.get(msg.sender);
+  if (!authorData && db) {
+    try {
+      const uDoc = await db.collection('users').doc(msg.sender).get();
+      if (uDoc.exists) {
+        authorData = uDoc.data();
+        usersCache.set(msg.sender, authorData);
+      }
+    } catch (e) {}
+  }
+
+  const displayName = authorData ? (authorData.displayName || authorData.username) : (msg.senderName || msg.sender);
+
+  let contentHtml = `<div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">`;
+  contentHtml += `<div class="msg-avatar-mini" id="msg-av-${id}" style="width:22px; height:22px; border-radius:50%; font-size:12px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.1); overflow:hidden;"></div>`;
+  contentHtml += `<div class="msg-author" style="font-weight:bold; font-size:13px;">${escapeHtml(displayName)}</div>`;
+  contentHtml += `</div>`;
 
   if (msg.replyToText) {
     contentHtml += `<div style="border-left:2px solid #fff; padding-left:6px; margin-bottom:4px; font-size:12px; opacity:0.8;">${escapeHtml(msg.replyToText)}</div>`;
@@ -396,6 +437,9 @@ function renderMessageItem(msg, id) {
   div.innerHTML = contentHtml;
   div.ondblclick = () => setReply(msg);
   container.appendChild(div);
+
+  const miniAvBox = div.querySelector(`#msg-av-${id}`);
+  renderAvatar(authorData || { avatarEmoji: '👤' }, miniAvBox);
 }
 
 window.sendMessage = async function(extraData = {}) {
@@ -550,17 +594,26 @@ window.closeProfileModal = function() {
 window.saveProfileChanges = async function() {
   const newName = document.getElementById('edit-display-name').value.trim();
   const newEmoji = document.getElementById('edit-avatar-emoji').value.trim();
-  const file = document.getElementById('edit-avatar-file').files[0];
+  const fileInput = document.getElementById('edit-avatar-file');
+  const file = fileInput ? fileInput.files[0] : null;
 
   if (newName) currentUser.displayName = newName;
   if (newEmoji) currentUser.avatarEmoji = newEmoji;
   if (file) currentUser.avatarUrl = await convertFileToBase64(file);
 
-  await db.collection('users').doc(currentUser.username).update(currentUser);
+  await db.collection('users').doc(currentUser.username).update({
+    displayName: currentUser.displayName,
+    avatarEmoji: currentUser.avatarEmoji,
+    avatarUrl: currentUser.avatarUrl || ''
+  });
+
   localStorage.setItem('chat_user', JSON.stringify(currentUser));
+  usersCache.set(currentUser.username, currentUser);
 
   updateDrawerUI();
   window.closeProfileModal();
+  
+  if (currentChatId) listenMessages(currentChatId);
 };
 
 function escapeHtml(text) {

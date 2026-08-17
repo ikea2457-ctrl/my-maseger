@@ -493,4 +493,31 @@ body {
 
 .durak-actions {
   text-align: center;
+  /* Фикс экрана чата и инпута */
+#chat-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 10px;
+}
+
+#input-area {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: #17212b;
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
+  z-index: 100;
+}
 }

@@ -1,266 +1,316 @@
+/* --- СБРОС ДЕФОЛТНЫХ СТИЛЕЙ БРАУЗЕРА --- */
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-tap-highlight-color: transparent;
 }
 
-body, html {
-  width: 100%;
-  height: 100dvh;
+body {
   background-color: #0f0f12;
-  color: #ffffff;
-  overflow: hidden;
-  position: fixed;
-}
-
-/* Кнопки и инпуты */
-input[type="text"], input[type="password"] {
-  width: 100%;
-  padding: 12px 14px;
-  background: #1e1e24;
-  border: 1px solid #2e2e38;
-  border-radius: 10px;
-  color: #fff;
-  font-size: 15px;
-  outline: none;
-}
-
-input[type="text"]:focus, input[type="password"]:focus {
-  border-color: #0088cc;
-}
-
-.btn {
-  padding: 10px 18px;
-  border: none;
-  border-radius: 10px;
-  background: #2a2a36;
-  color: #fff;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.btn.primary { background: #0088cc; }
-.btn.red { background: #e53935; }
-.btn.green { background: #43a047; }
-
-.icon-btn {
-  background: transparent;
-  border: none;
-  color: #aaa;
-  font-size: 20px;
-  padding: 8px;
-  cursor: pointer;
-  border-radius: 50%;
-}
-.icon-btn:hover { background: #252530; color: #fff; }
-
-/* Авторизация */
-#auth-screen {
-  position: fixed;
-  top: 0; left: 0; width: 100vw; height: 100dvh;
-  background: #0f0f12;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  z-index: 99999;
-}
-
-#auth-screen.active { display: flex; }
-
-.auth-box {
-  background: #18181f;
-  padding: 28px;
-  border-radius: 16px;
-  width: 90%;
-  max-width: 360px;
+  color: #f5f5f7;
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  overflow: hidden;
 }
 
-.auth-box .tabs {
+/* --- СЕТКА И ЭКРАНЫ --- */
+.screen {
+  display: none;
+  height: 100vh;
+  width: 100%;
+}
+
+.screen.active {
   display: flex;
-  gap: 8px;
-  background: #101014;
+}
+
+/* --- ЭКРАН АВТОРИЗАЦИИ (FIX) --- */
+#auth-screen {
+  justify-content: center;
+  align-items: center;
+  background: #0f0f12;
+  padding: 16px;
+}
+
+.auth-card {
+  background: #18181c;
+  border: 1px solid #2a2a32;
+  padding: 28px 24px;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 360px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-tabs {
+  display: flex;
+  background: #222228;
   padding: 4px;
   border-radius: 10px;
+  margin-bottom: 8px;
 }
 
-.auth-box .tabs button {
+/* Нормальные кнопки табов без белого фона */
+.auth-tab {
   flex: 1;
-  padding: 8px;
-  border: none;
-  border-radius: 8px;
+  padding: 10px;
   background: transparent;
-  color: #888;
+  border: none !important;
+  outline: none !important;
+  color: #8e8e93;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.auth-tab.active {
+  background: #2c2c35;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Инпуты */
+.auth-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: #222228;
+  border: 1px solid #2a2a32 !important;
+  outline: none !important;
+  color: #fff;
+  font-size: 15px;
+  border-radius: 10px;
+  transition: border-color 0.2s ease;
+}
+
+.auth-input:focus {
+  border-color: #0088cc !important;
+}
+
+.auth-input::placeholder {
+  color: #63636e;
+}
+
+/* Кнопка Войти / Зарегистрироваться */
+.auth-btn {
+  width: 100%;
+  padding: 12px;
+  background: #0088cc;
+  border: none !important;
+  outline: none !important;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+  margin-top: 4px;
+}
+
+.auth-btn:hover {
+  background: #0077b3;
+}
+
+.auth-btn:active {
+  transform: scale(0.98);
+}
+
+/* --- ЧАТ И ШАПКА --- */
+#chat-screen {
+  flex-direction: column;
+  height: 100vh;
+  position: relative;
+}
+
+header {
+  height: 56px;
+  background: #18181c;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+  border-bottom: 1px solid #2a2a32;
+}
+
+.header-btn {
+  background: none;
+  border: none !important;
+  outline: none !important;
+  color: #f5f5f7;
+  font-size: 20px;
   cursor: pointer;
 }
 
-.auth-box .tabs button.active {
-  background: #252530;
-  color: #fff;
-}
-
-/* Главный интерфейс */
-#chat-screen {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  height: 100dvh;
-}
-
-#chat-header {
-  height: 60px;
-  background: #18181f;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  gap: 10px;
-  border-bottom: 1px solid #252530;
-  flex-shrink: 0;
-}
-
-.chat-info { flex: 1; }
-#chat-title { font-weight: bold; font-size: 16px; }
-#chat-subtitle { font-size: 12px; color: #4caf50; }
-
-.avatar-box {
-  width: 40px; height: 40px;
+.header-avatar {
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
-  background: #2a2a36;
+  background: #2c2c35;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
-  overflow: hidden;
-  flex-shrink: 0;
+  font-size: 18px;
 }
 
-.avatar-box img { width: 100%; height: 100%; object-fit: cover; }
-
-/* Табы */
-#tabs-bar { 
-  display: flex; 
-  background: #14141a; 
-  border-bottom: 1px solid #252530; 
-  flex-shrink: 0;
-}
-
-#tabs-bar button {
-  flex: 1; padding: 12px; background: transparent; border: none; color: #777; font-weight: 600; cursor: pointer;
-}
-#tabs-bar button.active { color: #0088cc; border-bottom: 2px solid #0088cc; }
-
-/* Сообщения и список ЛС */
-#messages-container, #chats-list {
+.header-title {
+  font-size: 17px;
+  font-weight: 600;
   flex: 1;
-  padding: 16px;
-  overflow-y: auto;
-  min-height: 0;
 }
 
+/* Табы общего/личных чатов */
+.tabs-bar {
+  display: flex;
+  background: #141417;
+  border-bottom: 1px solid #2a2a32;
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 12px;
+  background: none;
+  border: none !important;
+  outline: none !important;
+  color: #63636e;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.tab-btn.active {
+  color: #0088cc;
+  border-bottom: 2px solid #0088cc !important;
+}
+
+/* Контейнер сообщений */
 #messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  background: #0f0f12;
 }
 
 .message {
-  background: #1e1e24;
+  max-width: 78%;
+  background: #18181c;
+  border: 1px solid #2a2a32;
   padding: 10px 14px;
-  border-radius: 12px;
-  max-width: 80%;
-  width: fit-content;
+  border-radius: 14px 14px 14px 4px;
   align-self: flex-start;
   word-break: break-word;
+  font-size: 15px;
+  line-height: 1.4;
 }
 
 .message.my {
-  background: #0088cc;
+  background: #005c8a;
+  border: none;
+  border-radius: 14px 14px 4px 14px;
   align-self: flex-end;
+  color: #fff;
 }
 
-.msg-author { font-size: 11px; color: #aaa; margin-bottom: 4px; }
-.message.my .msg-author { color: #e0e0e0; }
-.msg-img { max-width: 200px; border-radius: 8px; margin-top: 6px; }
-.circle-video { width: 160px; height: 160px; border-radius: 50%; object-fit: cover; margin-top: 6px; }
-
-/* Поиск */
-#user-search-input { margin-bottom: 12px; }
-
-/* Элемент списка ЛС */
-.chat-item {
+/* Поле ввода */
+#input-area {
+  padding: 10px 12px;
+  background: #18181c;
+  border-top: 1px solid #2a2a32;
   display: flex;
+  gap: 10px;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
-  background: #18181f;
-  border-radius: 10px;
-  margin-bottom: 8px;
+}
+
+.input-btn {
+  background: none;
+  border: none !important;
+  outline: none !important;
+  color: #8e8e93;
+  font-size: 20px;
   cursor: pointer;
 }
 
-.chat-item-info { flex: 1; min-width: 0; }
-.chat-item-top { display: flex; justify-content: space-between; }
-.chat-item-name { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-item-time { font-size: 12px; color: #666; }
-.chat-item-lastmsg { font-size: 13px; color: #aaa; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* Ввод */
-#input-area {
-  padding: 10px; 
-  background: #18181f; 
-  display: flex; 
-  align-items: center; 
-  gap: 8px; 
-  border-top: 1px solid #252530;
-  flex-shrink: 0;
-  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+#message-input {
+  flex: 1;
+  padding: 10px 16px;
+  background: #222228;
+  border: 1px solid #2a2a32 !important;
+  outline: none !important;
+  color: #fff;
+  border-radius: 20px;
+  font-size: 15px;
 }
 
-#input-area input { flex: 1; }
-.send-btn, #voice-btn, #circle-btn, .attach-btn {
-  background: transparent; border: none; font-size: 20px; cursor: pointer; color: #fff;
-}
-
-/* Drawer */
+/* Боковое меню */
 #drawer {
-  position: fixed; top: 0; left: -280px; width: 280px; height: 100%;
-  background: #18181f; z-index: 100000; transition: left 0.3s ease; padding: 20px;
-  display: flex; flex-direction: column; gap: 20px;
+  position: fixed;
+  top: 0;
+  left: -280px;
+  width: 280px;
+  height: 100%;
+  background: #18181c;
+  border-right: 1px solid #2a2a32;
+  z-index: 100;
+  transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
 }
-#drawer.active { left: 0; }
+
+#drawer.active {
+  left: 0;
+}
 
 #overlay {
-  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-  background: rgba(0,0,0,0.6); z-index: 99999; display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+  z-index: 90;
+  display: none;
 }
-#overlay.active { display: block; }
 
-.drawer-header { display: flex; flex-direction: column; align-items: center; gap: 8px; border-bottom: 1px solid #252530; padding-bottom: 16px; }
-.drawer-menu { display: flex; flex-direction: column; gap: 10px; }
-.drawer-menu button { background: transparent; border: none; color: #fff; text-align: left; padding: 10px; font-size: 15px; cursor: pointer; border-radius: 8px; }
-.drawer-menu button:hover { background: #252530; }
+#overlay.active {
+  display: block;
+}
 
 /* Модалки */
 .modal {
-  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-  background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 100001;
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
 }
-.modal.active { display: flex; }
-.modal-content { background: #18181f; padding: 24px; border-radius: 16px; width: 90%; max-width: 400px; display: flex; flex-direction: column; gap: 12px; }
 
-/* Превью ответа */
-#reply-preview {
-  background: #14141a; padding: 8px 12px; display: flex; justify-content: space-between; border-top: 1px solid #252530; font-size: 13px; color: #aaa; flex-shrink: 0;
+.modal.active {
+  display: flex;
 }
 
-/* Игра Дурак */
-.durak-card {
-  display: inline-block; width: 50px; height: 70px; background: #fff; color: #000;
-  border-radius: 6px; padding: 6px; text-align: center; font-weight: bold; margin: 4px; cursor: pointer; white-space: pre-line;
+.modal-content {
+  background: #18181c;
+  border: 1px solid #2a2a32;
+  padding: 24px;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
-.durak-card.red { color: #e53935; }

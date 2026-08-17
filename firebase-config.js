@@ -7,6 +7,13 @@ const firebaseConfig = {
   appId: "1:36769601467:web:67b0956db8cbb9cf93569e"
 };
 
-if (typeof firebase !== 'undefined' && !firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
+// Инициализация
+if (typeof firebase !== 'undefined') {
+  if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+  }
+  // Объявляем global db для app.js
+  window.db = firebase.firestore();
+} else {
+  console.error("SDK Firebase не загружен в index.html!");
 }

@@ -2,216 +2,172 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Messenger & Durak Online</title>
   <link rel="stylesheet" href="style.css">
-  <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <script src="firebase-config.js"></script>
 </head>
 <body>
 
-  <!-- Экран Авторизации -->
-  <div id="auth-screen" class="screen active">
-    <div class="auth-card">
-      <div class="auth-header">
-        <div class="logo">⚡</div>
-        <h2>Добро пожаловать</h2>
-        <p>Войдите или зарегистрируйтесь для общения</p>
+  <!-- Экран авторизации -->
+  <div id="auth-screen" class="active">
+    <div class="auth-box">
+      <h2>Вход / Регистрация</h2>
+      <div class="tabs">
+        <button id="btn-show-login" class="active" onclick="toggleAuthMode('login')">Вход</button>
+        <button id="btn-show-reg" onclick="toggleAuthMode('register')">Регистрация</button>
       </div>
 
-      <div class="auth-tabs">
-        <button id="btn-show-login" class="tab-btn active" onclick="toggleAuthMode('login')">Вход</button>
-        <button id="btn-show-reg" class="tab-btn" onclick="toggleAuthMode('register')">Регистрация</button>
+      <input type="text" id="auth-username" placeholder="Логин (никнейм)" />
+      <input type="password" id="auth-password" placeholder="Пароль" />
+
+      <div id="reg-extra-fields" style="display: none;">
+        <input type="text" id="reg-display-name" placeholder="Отображаемое имя" />
+        <input type="text" id="reg-avatar-emoji" placeholder="Эмодзи-аватар (например, 🚀)" />
+        <label>Или загрузи аватарку:</label>
+        <input type="file" id="reg-avatar-file" accept="image/*" />
       </div>
 
-      <div class="auth-form">
-        <input type="text" id="auth-username" placeholder="Логин (никнейм)" autocomplete="off">
-        <input type="password" id="auth-password" placeholder="Пароль">
-
-        <div id="reg-extra-fields" style="display: none;">
-          <input type="text" id="reg-display-name" placeholder="Отображаемое имя">
-          <input type="text" id="reg-avatar-emoji" placeholder="Эмодзи-аватар (например 🚀)">
-          <label class="file-input-label">
-            <span>Загрузить фото-аватар</span>
-            <input type="file" id="reg-avatar-file" accept="image/*">
-          </label>
-        </div>
-
-        <button id="auth-submit-btn" class="btn primary" onclick="handleAuth()">Войти</button>
-      </div>
+      <button id="auth-submit-btn" class="btn primary" onclick="handleAuth()">Войти</button>
     </div>
   </div>
 
-  <!-- Экран Чата -->
-  <div id="chat-screen" class="screen">
-    <!-- Боковое меню -->
-    <div id="drawer" class="drawer">
+  <!-- Главный экран чата -->
+  <div id="chat-screen">
+
+    <!-- Боковое меню (Drawer) -->
+    <div id="drawer">
       <div class="drawer-header">
-        <div id="drawer-avatar-box" class="avatar-box"></div>
-        <div class="drawer-info">
-          <div id="drawer-displayname" class="name">User</div>
-          <div id="drawer-username" class="username">@user</div>
-        </div>
+        <div id="drawer-avatar-box" class="avatar-box">👤</div>
+        <div id="drawer-displayname">User Name</div>
+        <div id="drawer-username">@username</div>
       </div>
       <div class="drawer-menu">
-        <button onclick="openProfileModal()"><span class="icon">👤</span> Профиль</button>
-        <button onclick="logout()"><span class="icon">🚪</span> Выход</button>
+        <button onclick="openProfileModal()">✏️ Редактировать профиль</button>
+        <button onclick="logout()">🚪 Выйти</button>
       </div>
     </div>
-    <div id="overlay" class="overlay" onclick="toggleMenu()"></div>
+    <div id="overlay" onclick="toggleMenu()"></div>
 
-    <!-- Основной UI -->
-    <div class="chat-container">
-      <!-- Шапка -->
-      <header class="app-header">
-        <button class="icon-btn" onclick="toggleMenu()">☰</button>
-        <button id="back-btn" class="icon-btn" style="display:none;" onclick="openGlobalChat()">←</button>
-        
-        <div class="header-info">
-          <div class="header-avatar" id="chat-header-avatar">🌐</div>
-          <div>
-            <div id="chat-title" class="title">Общий Чат</div>
-            <div id="chat-subtitle" class="subtitle">онлайн</div>
-          </div>
-        </div>
-
-        <div class="header-actions">
-          <button class="icon-btn" id="call-btn" onclick="startOrJoinGroupCall()">📞</button>
-          <button class="icon-btn" id="durak-btn" onclick="openDurakInviteModal()" title="Сыграть в Дурака">🃏</button>
-          <button class="icon-btn" onclick="toggleSearch()">🔍</button>
-        </div>
-      </header>
-
-      <!-- Панель Поиска -->
-      <div id="search-bar" class="search-bar" style="display: none;">
-        <input type="text" id="search-input" placeholder="Поиск сообщений..." oninput="searchMessages()">
+    <!-- Верхняя шапка -->
+    <div id="chat-header">
+      <button class="icon-btn" onclick="toggleMenu()">☰</button>
+      <button class="icon-btn" id="back-btn" style="display:none;" onclick="switchTab('directs')">⬅️</button>
+      
+      <div id="chat-header-avatar" class="avatar-box">🌐</div>
+      <div class="chat-info">
+        <div id="chat-title">Общий Чат 🌐</div>
+        <div id="chat-subtitle">онлайн</div>
       </div>
 
-      <!-- Вкладки (Общий / Диалоги) -->
-      <div id="tabs-bar" class="tabs-bar">
-        <button id="tab-global" class="tab active" onclick="switchTab('global')">🌐 Общий чат</button>
-        <button id="tab-directs" class="tab" onclick="switchTab('directs')">💬 Личные сообщения</button>
-      </div>
+      <button class="icon-btn" onclick="startOrJoinGroupCall()">📞</button>
+      <button class="icon-btn" onclick="openDurakInviteModal()">🃏</button>
+      <button class="icon-btn" onclick="toggleSearch()">🔍</button>
+    </div>
 
-      <!-- Список Личных Сообщений / Поиск Юзеров -->
-      <div id="chats-list" class="chats-list" style="display: none;">
-        <div class="user-search-box">
-          <input type="text" id="user-search-input" placeholder="Поиск пользователей..." oninput="filterUsersList()">
-        </div>
-        <div id="users-container" class="users-container"></div>
-      </div>
+    <!-- Табы чатов -->
+    <div id="tabs-bar">
+      <button id="tab-global" class="active" onclick="switchTab('global')">🌐 Общий чат</button>
+      <button id="tab-directs" onclick="switchTab('directs')">💬 Личные сообщения</button>
+    </div>
 
-      <!-- Баннер Группового Звонка -->
-      <div id="group-call-banner" class="call-banner" style="display: none;">
-        <span>🎙️ Идет групповой звонок</span>
-        <span id="group-call-count">Участников: 0</span>
-        <button onclick="startOrJoinGroupCall()">Присоединиться</button>
-      </div>
+    <!-- Поиск по сообщениям -->
+    <div id="search-bar" style="display:none;">
+      <input type="text" id="search-input" placeholder="Поиск сообщений..." oninput="searchMessages()">
+    </div>
 
-      <!-- Контейнер Сообщений -->
-      <div id="messages-container" class="messages-container"></div>
+    <!-- Список ЛС -->
+    <div id="chats-list" style="display:none;">
+      <input type="text" id="user-search-input" placeholder="Поиск пользователя..." oninput="filterUsersList()">
+      <div id="users-container"></div>
+    </div>
 
-      <!-- Ответ на сообщение -->
-      <div id="reply-preview" class="reply-preview" style="display: none;">
-        <div id="reply-preview-text"></div>
-        <button onclick="cancelReply()">✕</button>
-      </div>
+    <!-- Превью ответа -->
+    <div id="reply-preview" style="display:none;">
+      <span id="reply-preview-text"></span>
+      <button onclick="cancelReply()">❌</button>
+    </div>
 
-      <!-- Панель Ввода -->
-      <div id="input-area" class="input-area">
-        <label class="icon-btn file-btn">
-          📎
-          <input type="file" accept="image/*" onchange="sendImage(event)" hidden>
-        </label>
-        <input type="text" id="message-input" placeholder="Написать сообщение..." onkeypress="handleKeyPress(event)" oninput="handleTyping()">
-        <button id="voice-btn" class="icon-btn" onclick="toggleVoiceRecord()">🎙️</button>
-        <button class="btn send-btn" onclick="sendMessage()">➤</button>
-      </div>
+    <!-- Контейнер сообщений -->
+    <div id="messages-container"></div>
+
+    <!-- Строка ввода -->
+    <div id="input-area">
+      <button id="voice-btn" onclick="toggleVoiceRecord()">🎙️</button>
+      <button id="circle-btn" onclick="toggleCircleRecord()">📹</button>
+
+      <input type="text" id="message-input" placeholder="Сообщение..." onkeypress="handleKeyPress(event)" oninput="handleTyping()">
+
+      <label for="img-file-input" class="attach-btn">📎</label>
+      <input type="file" id="img-file-input" accept="image/*" style="display:none;" onchange="sendImage(event)">
+
+      <button onclick="sendMessage()" class="send-btn">➤</button>
     </div>
   </div>
 
-  <!-- Модалка Входящего Звонка -->
-  <div id="incoming-call-box" class="modal-call" style="display: none;">
-    <div class="call-card">
-      <div id="caller-name">Входящий звонок...</div>
-      <div class="call-actions">
-        <button class="btn green" onclick="answerCall()">Ответить</button>
-        <button class="btn red" onclick="rejectCall()">Сбросить</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Модалка Звонка/Видео -->
-  <div id="call-modal" class="modal">
-    <div class="call-container">
-      <div id="video-grid" class="video-grid">
-        <video id="local-video" autoplay muted playsinline></video>
-      </div>
-      <div class="call-controls">
-        <button id="mic-btn" onclick="toggleMic()">🎤</button>
-        <button id="cam-btn" onclick="toggleCam()">📷</button>
-        <button class="red" onclick="hangUpGroupCall()">Завершить</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Модалка Профиля -->
+  <!-- Модалка профиля -->
   <div id="profile-modal" class="modal">
-    <div class="modal-card">
-      <h3>Настройки профиля</h3>
-      <input type="text" id="edit-display-name" placeholder="Новое имя">
-      <input type="text" id="edit-avatar-emoji" placeholder="Новый эмодзи-аватар">
-      <label class="file-input-label">
-        <span>Сменить фото</span>
-        <input type="file" id="edit-avatar-file" accept="image/*">
-      </label>
-      <div class="modal-buttons">
-        <button class="btn secondary" onclick="closeProfileModal()">Отмена</button>
-        <button class="btn primary" onclick="saveProfileChanges()">Сохранить</button>
-      </div>
+    <div class="modal-content">
+      <h3>Редактирование профиля</h3>
+      <input type="text" id="edit-display-name" placeholder="Новое имя" />
+      <input type="text" id="edit-avatar-emoji" placeholder="Новый эмодзи-аватар" />
+      <label>Изменить фото:</label>
+      <input type="file" id="edit-avatar-file" accept="image/*" />
+      <button onclick="saveProfileChanges()" class="btn primary">Сохранить</button>
+      <button onclick="closeProfileModal()" class="btn">Отмена</button>
     </div>
   </div>
 
-  <!-- МОДАЛКА ИГРЫ В ДУРАКА -->
+  <!-- Модалка Дурака -->
   <div id="durak-modal" class="modal">
-    <div class="durak-container">
-      <div class="durak-header">
-        <h2>🃏 Дурак Онлайн</h2>
-        <button class="icon-btn" onclick="closeDurakModal()">✕</button>
+    <div class="modal-content" style="max-width: 500px; width: 95%;">
+      <h3>🃏 Игра в Дурака</h3>
+      <div id="durak-setup">
+        <p>Выберите размер колоды:</p>
+        <label><input type="radio" name="deck-size" value="54" checked> 54 карты</label><br>
+        <label><input type="radio" name="deck-size" value="108"> 108 карт</label><br><br>
+        <button onclick="createDurakGame()" class="btn primary">Создать игру</button>
       </div>
 
-      <!-- Панель приглашения в игру -->
-      <div id="durak-setup" class="durak-setup">
-        <h3>Создать игру</h3>
-        <p>Выберите размер колоды и пригласите соперника из чата:</p>
-        <div class="deck-selector">
-          <label><input type="radio" name="deck-size" value="54" checked> Колода 54 карты (с джокерами)</label>
-          <label><input type="radio" name="deck-size" value="108" > Колода 108 карт (двойная)</label>
-        </div>
-        <button class="btn primary" onclick="createDurakGame()">Отправить приглашение в чат</button>
-      </div>
-
-      <!-- Игровое Поле -->
-      <div id="durak-table" class="durak-table" style="display: none;">
-        <div class="durak-status-bar">
-          <div id="durak-trump-info">Козырь: -</div>
-          <div id="durak-deck-count">Карт в колоде: 0</div>
-          <div id="durak-turn-info">Ход: -</div>
-        </div>
-
-        <div class="durak-opponent-hand" id="durak-opponent-hand"></div>
-        <div class="durak-board" id="durak-board"></div>
-        <div class="durak-my-hand" id="durak-my-hand"></div>
-
+      <div id="durak-table" style="display:none;">
+        <div id="durak-trump-info"></div>
+        <div id="durak-deck-count"></div>
+        <div id="durak-turn-info"></div>
+        <div id="durak-opponent-hand"></div>
+        <div id="durak-board"></div>
+        <div id="durak-my-hand"></div>
         <div class="durak-actions">
           <button id="durak-action-btn" class="btn primary" onclick="handleDurakAction()">Беру / Бито</button>
         </div>
       </div>
+      <br>
+      <button onclick="closeDurakModal()" class="btn">Выйти</button>
     </div>
   </div>
 
-  <script src="firebase-config.js"></script>
+  <!-- Модалка звонка -->
+  <div id="call-modal" class="modal">
+    <div class="modal-content">
+      <h3>Групповой / Личный звонок</h3>
+      <video id="local-video" autoplay muted style="width:100%; max-height:200px; border-radius:8px; background:#000;"></video>
+      <div id="remote-videos"></div>
+      <div style="margin-top:10px;">
+        <button onclick="toggleMic()" id="mic-btn">🎤</button>
+        <button onclick="toggleCam()" id="cam-btn">📷</button>
+        <button onclick="hangUpGroupCall()" class="btn red">Завершить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Уведомление о входящем звонке -->
+  <div id="incoming-call-box" style="display:none;">
+    <span id="caller-name">Звонок...</span>
+    <button onclick="answerCall()" class="btn green">Принять</button>
+    <button onclick="rejectCall()" class="btn red">Сбросить</button>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

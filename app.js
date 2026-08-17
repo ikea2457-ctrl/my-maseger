@@ -4,37 +4,39 @@
 let currentUser = JSON.parse(localStorage.getItem('chat_user')) || null;
 let currentChat = 'global';
 let unsubscribeListener = null;
-let groupCallListener = null;
 let typingTimeout = null;
 let authMode = 'login';
 let replyingToMessage = null;
 let allUsers = [];
 
-// WebRTC / Звонки
+// Звонки
 let localStream = null;
-let peerConnections = {};
 let activeCallId = null;
 
-// Голосовые сообщения
+// Голосовые
 let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
+
+// Видеокружки
+let circleRecorder = null;
+let circleChunks = [];
+let isRecordingCircle = false;
 
 // Игра в Дурака
 let currentDurakGameId = null;
 let durakUnsubscribe = null;
 
 const sendSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
-const servers = { iceServers: [{ urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }] };
 
-// Инициализация при загрузке
+// Инициализация
 document.addEventListener("DOMContentLoaded", () => {
   if (currentUser) {
     showChat();
   }
 });
 
-// Хеширование паролей (SHA-256)
+// Хеширование паролей
 async function hashPassword(password) {
   const msgBuffer = new TextEncoder().encode(password);
   const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -42,7 +44,7 @@ async function hashPassword(password) {
 }
 
 // ==========================================
-// 1. АВТОРИЗАЦИЯ И РЕГИСТРАЦИЯ
+// 1. АВТОРИЗАЦИЯ
 // ==========================================
 function toggleAuthMode(mode) {
   authMode = mode;
@@ -138,11 +140,10 @@ function openGlobalChat() {
   document.getElementById('back-btn').style.display = 'none';
   document.getElementById('chats-list').style.display = 'none';
   document.getElementById('messages-container').style.display = 'flex';
-  document.getElementById('input-area').style.display = 'flex'; // Гарантированный показ строки ввода
+  document.getElementById('input-area').style.display = 'flex';
   document.getElementById('tabs-bar').style.display = 'flex';
   renderChatHeaderAvatar('🌐');
   loadMessages();
-  listenGroupCalls();
 }
 
 function showDirectsList() {
@@ -152,7 +153,6 @@ function showDirectsList() {
   loadUsersList();
 }
 
-// УМНАЯ ЛИЧКА: уникальный ID комнаты и загрузка только активных диалогов
 function getChatId() {
   if (currentChat === 'global') return 'global';
   return [currentUser.username, currentChat].sort().join('_');
@@ -169,34 +169,23 @@ async function loadUsersList() {
     snapshot.forEach(doc => {
       const data = doc.data();
       const chatId = data.chatId || 'global';
-
       if (chatId !== 'global' && chatId.includes(currentUser.username)) {
         const parts = chatId.split('_');
         const partner = parts.find(u => u !== currentUser.username);
-        if (partner) {
-          activeInteractions.add(partner);
-        }
+        if (partner) activeInteractions.add(partner);
       }
     });
 
-    if (activeInteractions.size === 0) {
-      container.innerHTML = '<div style="padding:15px; color:var(--text-muted); text-align:center;">У тебя пока нет личных сообщений.<br>Используй поиск, чтобы найти юзера и написать первым!</div>';
-      allUsers = [];
-      return;
-    }
-
     const accountsSnapshot = await db.collection('accounts').get();
     allUsers = [];
-
     accountsSnapshot.forEach(doc => {
-      if (activeInteractions.has(doc.id)) {
+      if (activeInteractions.has(doc.id) || doc.id !== currentUser.username) {
         allUsers.push(doc.data());
       }
     });
 
     renderUsersContainer(allUsers);
   } catch (err) {
-    console.error("Ошибка загрузки ЛС:", err);
     container.innerHTML = '<div style="padding:15px; color:red;">Ошибка загрузки диалогов</div>';
   }
 }
@@ -207,7 +196,7 @@ function openDirectChat(targetUser) {
   document.getElementById('back-btn').style.display = 'block';
   document.getElementById('chats-list').style.display = 'none';
   document.getElementById('messages-container').style.display = 'flex';
-  document.getElementById('input-area').style.display = 'flex'; // Гарантированный показ строки ввода
+  document.getElementById('input-area').style.display = 'flex';
   document.getElementById('tabs-bar').style.display = 'none';
   
   const targetObj = allUsers.find(u => u.username === targetUser);
@@ -219,8 +208,7 @@ function openDirectChat(targetUser) {
 }
 
 function renderChatHeaderAvatar(avatar) {
-  const el = document.getElementById('chat-header-avatar');
-  renderAvatar(avatar, el);
+  renderAvatar(avatar, document.getElementById('chat-header-avatar'));
 }
 
 function renderUsersContainer(users) {
@@ -228,11 +216,9 @@ function renderUsersContainer(users) {
   container.innerHTML = '';
   users.forEach(u => {
     const item = document.createElement('div');
-    item.className = 'user-item';
     item.style.cssText = 'display:flex; align-items:center; gap:12px; padding:12px 15px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05);';
     
     const avBox = document.createElement('div');
-    avBox.className = 'avatar-box';
     avBox.style.cssText = 'width:40px; height:40px; border-radius:50%; background:#242f3d; display:flex; align-items:center; justify-content:center; font-size:18px;';
     renderAvatar(u.avatar, avBox);
 
@@ -253,7 +239,7 @@ function filterUsersList() {
 }
 
 // ==========================================
-// 3. ЧАТ И СООБЩЕНИЯ (ОБЩИЙ + УМНАЯ ЛС)
+// 3. ЧАТ И СООБЩЕНИЯ
 // ==========================================
 function loadMessages() {
   if (unsubscribeListener) unsubscribeListener();
@@ -291,9 +277,12 @@ function loadMessages() {
           content += `<img src="${data.image}" style="max-width:100%; border-radius:8px; margin-bottom:5px;">`;
         }
         
-        // ФИКС АУДИОПЛЕЕРА: аккуратно вписывается в бабл
         if (data.audio) {
           content += `<audio src="${data.audio}" controls style="width: 100%; max-width: 220px; height: 36px; outline: none; border-radius: 20px; margin-top: 4px;"></audio>`;
+        }
+
+        if (data.videoCircle) {
+          content += `<video src="${data.videoCircle}" class="circle-video" controls autoplay loop muted></video>`;
         }
         
         if (data.text) {
@@ -326,7 +315,7 @@ function sendMessage(extraData = {}) {
   const input = document.getElementById('message-input');
   const text = input.value.trim();
 
-  if (text || extraData.image || extraData.audio || extraData.isDurakInvite) {
+  if (text || extraData.image || extraData.audio || extraData.videoCircle || extraData.isDurakInvite) {
     const payload = {
       chatId: getChatId(),
       text: text,
@@ -367,13 +356,10 @@ function sendImage(e) {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = ev => {
-    sendMessage({ image: ev.target.result });
-  };
+  reader.onload = ev => sendMessage({ image: ev.target.result });
   reader.readAsDataURL(file);
 }
 
-// Поиск по сообщениям
 function toggleSearch() {
   const bar = document.getElementById('search-bar');
   bar.style.display = bar.style.display === 'none' ? 'block' : 'none';
@@ -382,55 +368,67 @@ function toggleSearch() {
 function searchMessages() {
   const q = document.getElementById('search-input').value.toLowerCase();
   const msgs = document.querySelectorAll('.messages-container .msg');
-  msgs.forEach(m => {
-    const t = m.innerText.toLowerCase();
-    m.style.display = t.includes(q) ? 'block' : 'none';
-  });
+  msgs.forEach(m => m.style.display = m.innerText.toLowerCase().includes(q) ? 'block' : 'none');
 }
 
-// Индикатор печати
-function handleTyping() {
-  db.collection('typing').doc(getChatId()).set({
-    [currentUser.username]: true
-  }, { merge: true });
-
-  clearTimeout(typingTimeout);
-  typingTimeout = setTimeout(() => {
-    db.collection('typing').doc(getChatId()).set({
-      [currentUser.username]: false
-    }, { merge: true });
-  }, 2000);
-}
+function handleTyping() {}
 
 // ==========================================
-// 4. ГОЛОСОВЫЕ СООБЩЕНИЯ
+// 4. ГОЛОСОВЫЕ И КРУЖОЧКИ
 // ==========================================
 async function toggleVoiceRecord() {
-  const voiceBtn = document.getElementById('voice-btn');
+  const btn = document.getElementById('voice-btn');
   if (!isRecording) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorder = new MediaRecorder(stream);
       audioChunks = [];
-      
       mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
         const reader = new FileReader();
         reader.onload = ev => sendMessage({ audio: ev.target.result });
-        reader.readAsDataURL(audioBlob);
+        reader.readAsDataURL(blob);
       };
-
       mediaRecorder.start();
       isRecording = true;
-      voiceBtn.innerText = '🔴';
+      btn.innerText = '🔴';
     } catch (e) {
       alert("Нет доступа к микрофону!");
     }
   } else {
     mediaRecorder.stop();
     isRecording = false;
-    voiceBtn.innerText = '🎙️';
+    btn.innerText = '🎙️';
+  }
+}
+
+async function toggleCircleRecord() {
+  const btn = document.getElementById('circle-btn');
+  if (!isRecordingCircle) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 300, height: 300 }, audio: true });
+      circleRecorder = new MediaRecorder(stream);
+      circleChunks = [];
+      circleRecorder.ondataavailable = e => circleChunks.push(e.data);
+      circleRecorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(circleChunks, { type: 'video/webm' });
+        const reader = new FileReader();
+        reader.onload = ev => sendMessage({ videoCircle: ev.target.result });
+        reader.readAsDataURL(blob);
+      };
+      circleRecorder.start();
+      isRecordingCircle = true;
+      btn.innerText = '🔴';
+    } catch (e) {
+      alert("Нет доступа к камере/микрофону!");
+    }
+  } else {
+    circleRecorder.stop();
+    isRecordingCircle = false;
+    btn.innerText = '📹';
   }
 }
 
@@ -439,7 +437,6 @@ async function toggleVoiceRecord() {
 // ==========================================
 function openProfileModal() {
   document.getElementById('edit-display-name').value = currentUser.displayName;
-  document.getElementById('edit-avatar-emoji').value = currentUser.avatar.startsWith('data:') ? '' : currentUser.avatar;
   document.getElementById('profile-modal').classList.add('active');
   toggleMenu();
 }
@@ -466,11 +463,7 @@ async function saveProfileChanges() {
   currentUser.displayName = newName;
   currentUser.avatar = newAvatar;
 
-  await db.collection('accounts').doc(currentUser.username).update({
-    displayName: newName,
-    avatar: newAvatar
-  });
-
+  await db.collection('accounts').doc(currentUser.username).update({ displayName: newName, avatar: newAvatar });
   localStorage.setItem('chat_user', JSON.stringify(currentUser));
   document.getElementById('drawer-displayname').innerText = newName;
   renderAvatar(newAvatar, document.getElementById('drawer-avatar-box'));
@@ -478,145 +471,93 @@ async function saveProfileChanges() {
 }
 
 // ==========================================
-// 6. WebRTC И ЗВОНКИ
+// 6. ЗВОНКИ
 // ==========================================
-function listenIncomingCalls() {
-  db.collection('calls').where('target', '==', currentUser.username)
-    .where('status', '==', 'calling')
-    .onSnapshot(snap => {
-      snap.forEach(doc => {
-        const call = doc.data();
-        activeCallId = doc.id;
-        document.getElementById('caller-name').innerText = `Звонит: ${call.callerDisplayName || call.caller}`;
-        document.getElementById('incoming-call-box').style.display = 'flex';
-      });
-    });
-}
-
+function listenIncomingCalls() {}
 async function startOrJoinGroupCall() {
   document.getElementById('call-modal').classList.add('active');
   localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
   document.getElementById('local-video').srcObject = localStream;
 }
-
 function toggleMic() {
   if (localStream) {
-    const audioTrack = localStream.getAudioTracks()[0];
-    audioTrack.enabled = !audioTrack.enabled;
-    document.getElementById('mic-btn').innerText = audioTrack.enabled ? '🎤' : '🔇';
+    const track = localStream.getAudioTracks()[0];
+    track.enabled = !track.enabled;
+    document.getElementById('mic-btn').innerText = track.enabled ? '🎤' : '🔇';
   }
 }
-
 function toggleCam() {
   if (localStream) {
-    const videoTrack = localStream.getVideoTracks()[0];
-    videoTrack.enabled = !videoTrack.enabled;
-    document.getElementById('cam-btn').innerText = videoTrack.enabled ? '📷' : '🚫';
+    const track = localStream.getVideoTracks()[0];
+    track.enabled = !track.enabled;
+    document.getElementById('cam-btn').innerText = track.enabled ? '📷' : '🚫';
   }
 }
-
 function hangUpGroupCall() {
-  if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-  }
+  if (localStream) localStream.getTracks().forEach(t => t.stop());
   document.getElementById('call-modal').classList.remove('active');
 }
-
-function answerCall() {
-  document.getElementById('incoming-call-box').style.display = 'none';
-  startOrJoinGroupCall();
-}
-
-function rejectCall() {
-  if (activeCallId) {
-    db.collection('calls').doc(activeCallId).update({ status: 'rejected' });
-  }
-  document.getElementById('incoming-call-box').style.display = 'none';
-}
-
-function listenGroupCalls() {}
+function answerCall() {}
+function rejectCall() {}
 
 // ==========================================
-// 7. ИГРА В ДУРАКА (54 / 108 карт)
+// 7. ИГРА В ДУРАКА
 // ==========================================
 function openDurakInviteModal() {
-  if (currentChat === 'global') {
-    return alert("Выберите соперника в личных сообщениях, чтобы пригласить его в игру!");
-  }
+  if (currentChat === 'global') return alert("Выберите соперника в ЛС!");
   document.getElementById('durak-modal').classList.add('active');
   document.getElementById('durak-setup').style.display = 'block';
   document.getElementById('durak-table').style.display = 'none';
 }
-
 function closeDurakModal() {
   document.getElementById('durak-modal').classList.remove('active');
-  if (durakUnsubscribe) durakUnsubscribe();
 }
-
 async function createDurakGame() {
   const deckSize = parseInt(document.querySelector('input[name="deck-size"]:checked').value);
   const deck = generateDeck(deckSize);
   const trumpCard = deck.pop();
-
-  const p1Hand = deck.splice(0, 6);
-  const p2Hand = deck.splice(0, 6);
-
   const gameRef = await db.collection('durak_games').add({
     player1: currentUser.username,
     player2: currentChat,
     deck: deck,
     trump: trumpCard,
-    p1Hand: p1Hand,
-    p2Hand: p2Hand,
+    p1Hand: deck.splice(0, 6),
+    p2Hand: deck.splice(0, 6),
     board: [],
     attacker: currentUser.username,
     defender: currentChat,
     status: 'active'
   });
-
   sendMessage({ isDurakInvite: true, gameId: gameRef.id, deckSize: deckSize });
-  alert("Приглашение отправлено!");
   closeDurakModal();
 }
-
 function generateDeck(size) {
   const suits = ['♠', '♥', '♦', '♣'];
   const values = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
   let deck = [];
-
   const copies = size === 108 ? 2 : 1;
   for (let c = 0; c < copies; c++) {
     for (let s of suits) {
-      for (let v of values) {
-        deck.push({ suit: s, value: v, isRed: s === '♥' || s === '♦' });
-      }
+      for (let v of values) deck.push({ suit: s, value: v, isRed: s === '♥' || s === '♦' });
     }
     deck.push({ suit: '🃏', value: 'JOKER', isRed: true });
     deck.push({ suit: '🃏', value: 'JOKER', isRed: false });
   }
-
   return deck.sort(() => Math.random() - 0.5);
 }
-
 function joinDurakGame(gameId) {
   currentDurakGameId = gameId;
   document.getElementById('durak-modal').classList.add('active');
   document.getElementById('durak-setup').style.display = 'none';
   document.getElementById('durak-table').style.display = 'flex';
-
   listenDurakGame();
 }
-
 function listenDurakGame() {
   if (durakUnsubscribe) durakUnsubscribe();
-
   durakUnsubscribe = db.collection('durak_games').doc(currentDurakGameId).onSnapshot(doc => {
-    if (!doc.exists) return;
-    const game = doc.data();
-    renderDurakBoard(game);
+    if (doc.exists) renderDurakBoard(doc.data());
   });
 }
-
 function renderDurakBoard(game) {
   const isP1 = currentUser.username === game.player1;
   const myHand = isP1 ? game.p1Hand : game.p2Hand;
@@ -656,14 +597,12 @@ function renderDurakBoard(game) {
     boardBox.appendChild(pairDiv);
   });
 }
-
 function createCardElement(data) {
   const card = document.createElement('div');
   card.className = `card ${data.isRed ? 'red' : ''}`;
   card.innerHTML = `<div>${data.value}</div><div style="font-size:20px; text-align:center;">${data.suit}</div>`;
   return card;
 }
-
 async function playCard(card, index, game) {
   const isAttacker = currentUser.username === game.attacker;
   const isP1 = currentUser.username === game.player1;
@@ -680,15 +619,12 @@ async function playCard(card, index, game) {
       else game.p2Hand.splice(index, 1);
     }
   }
-
   await db.collection('durak_games').doc(currentDurakGameId).update(game);
 }
-
 async function handleDurakAction() {
   const gameRef = db.collection('durak_games').doc(currentDurakGameId);
   const doc = await gameRef.get();
   let game = doc.data();
-
   const isAttacker = currentUser.username === game.attacker;
 
   if (isAttacker) {
@@ -704,6 +640,5 @@ async function handleDurakAction() {
     });
     game.board = [];
   }
-
   await gameRef.update(game);
 }

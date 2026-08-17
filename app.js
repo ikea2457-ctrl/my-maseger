@@ -1,644 +1,685 @@
 // ==========================================
-// ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ И СОСТОЯНИЕ
+// ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ И ИНИЦИАЛИЗАЦИЯ
 // ==========================================
-let currentUser = JSON.parse(localStorage.getItem('chat_user')) || null;
-let currentChat = 'global';
-let unsubscribeListener = null;
-let typingTimeout = null;
+let db = null;
+let currentUser = null;
+let currentChatId = 'global';
+let activeTab = 'global';
 let authMode = 'login';
-let replyingToMessage = null;
-let allUsers = [];
+let replyMessage = null;
+let unsubscribeMessages = null;
+let allLoadedChats = [];
 
-// Звонки
-let localStream = null;
-let activeCallId = null;
-
-// Голосовые
+// Медиа
 let mediaRecorder = null;
 let audioChunks = [];
-let isRecording = false;
-
-// Видеокружки
-let circleRecorder = null;
-let circleChunks = [];
+let isRecordingVoice = false;
 let isRecordingCircle = false;
 
-// Игра в Дурака
+// Дурак
 let currentDurakGameId = null;
 let durakUnsubscribe = null;
 
-const sendSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
-
-// Инициализация
-document.addEventListener("DOMContentLoaded", () => {
-  if (currentUser) {
-    showChat();
-  }
+// Старт приложения после загрузки DOM
+window.addEventListener('DOMContentLoaded', () => {
+  initFirebase();
+  checkSavedUser();
 });
 
-// Хеширование паролей
-async function hashPassword(password) {
-  const msgBuffer = new TextEncoder().encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+function initFirebase() {
+  try {
+    if (typeof firebase !== 'undefined' && firebase.apps.length) {
+      db = firebase.firestore();
+      console.log("✅ Firebase Firestore успешно подключен");
+    } else {
+      console.error("❌ Firebase SDK не инициализирован. Проверь firebase-config.js!");
+    }
+  } catch (e) {
+    console.error("❌ Ошибка инициализации БД:", e);
+  }
+}
+
+function checkSavedUser() {
+  const savedUser = localStorage.getItem('chat_user');
+  if (savedUser) {
+    try {
+      currentUser = JSON.parse(savedUser);
+      showChatScreen();
+    } catch (e) {
+      localStorage.removeItem('chat_user');
+    }
+  }
 }
 
 // ==========================================
-// 1. АВТОРИЗАЦИЯ
+// АВТОРИЗАЦИЯ И РЕГИСТРАЦИЯ
 // ==========================================
-function toggleAuthMode(mode) {
+
+window.toggleAuthMode = function(mode) {
   authMode = mode;
   document.getElementById('btn-show-login').classList.toggle('active', mode === 'login');
   document.getElementById('btn-show-reg').classList.toggle('active', mode === 'register');
   document.getElementById('reg-extra-fields').style.display = mode === 'register' ? 'block' : 'none';
   document.getElementById('auth-submit-btn').innerText = mode === 'login' ? 'Войти' : 'Зарегистрироваться';
-}
+};
 
-async function handleAuth() {
-  const username = document.getElementById('auth-username').value.trim().toLowerCase();
-  const password = document.getElementById('auth-password').value.trim();
-  if (!username || !password) return alert("Заполни логин и пароль!");
+window.handleAuth = async function() {
+  console.log("🔘 Нажата кнопка авторизации...");
 
-  const hashedPassword = await hashPassword(password);
-  const userRef = db.collection('accounts').doc(username);
-
-  if (authMode === 'register') {
-    const doc = await userRef.get();
-    if (doc.exists) return alert("Этот никнейм уже занят!");
-
-    const displayName = document.getElementById('reg-display-name').value.trim() || username;
-    const emojiAvatar = document.getElementById('reg-avatar-emoji').value.trim();
-    const avatarFile = document.getElementById('reg-avatar-file').files[0];
-
-    let avatarData = emojiAvatar || '👤';
-    if (avatarFile) {
-      avatarData = await new Promise(resolve => {
-        const reader = new FileReader();
-        reader.onload = e => resolve(e.target.result);
-        reader.readAsDataURL(avatarFile);
-      });
+  if (!db) {
+    if (typeof firebase !== 'undefined' && firebase.apps.length) {
+      db = firebase.firestore();
+    } else {
+      alert("❌ База данных не подключена! Проверь подключение к инету и firebase-config.js");
+      return;
     }
-
-    const userData = { username, password: hashedPassword, displayName, avatar: avatarData };
-    await userRef.set(userData);
-    currentUser = userData;
-  } else {
-    const doc = await userRef.get();
-    if (!doc.exists) return alert("Пользователь не найден!");
-    const data = doc.data();
-    if (data.password !== hashedPassword) return alert("Неверный пароль!");
-    currentUser = data;
   }
 
-  localStorage.setItem('chat_user', JSON.stringify(currentUser));
-  showChat();
-}
+  const usernameInput = document.getElementById('auth-username').value.trim();
+  const passwordInput = document.getElementById('auth-password').value.trim();
 
-function logout() {
+  if (!usernameInput || !passwordInput) {
+    alert("⚠️ Заполни логин и пароль!");
+    return;
+  }
+
+  const username = usernameInput.toLowerCase();
+  const submitBtn = document.getElementById('auth-submit-btn');
+  submitBtn.disabled = true;
+  submitBtn.innerText = 'Загрузка...';
+
+  try {
+    if (authMode === 'login') {
+      const doc = await db.collection('users').doc(username).get();
+
+      if (doc.exists) {
+        const userData = doc.data();
+        if (userData.password === passwordInput) {
+          currentUser = userData;
+          localStorage.setItem('chat_user', JSON.stringify(currentUser));
+          showChatScreen();
+        } else {
+          alert("❌ Неверный пароль!");
+        }
+      } else {
+        alert("❌ Пользователь не найден! Перейди во вкладку 'Регистрация'.");
+      }
+    } else {
+      // Регистрация
+      const doc = await db.collection('users').doc(username).get();
+      if (doc.exists) {
+        alert("⚠️ Этот логин уже занят!");
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'Зарегистрироваться';
+        return;
+      }
+
+      const displayName = document.getElementById('reg-display-name').value.trim() || usernameInput;
+      const avatarEmoji = document.getElementById('reg-avatar-emoji').value.trim() || '🚀';
+      let avatarUrl = '';
+
+      const avatarFile = document.getElementById('reg-avatar-file').files[0];
+      if (avatarFile) {
+        avatarUrl = await convertFileToBase64(avatarFile);
+      }
+
+      const newUser = {
+        username: username,
+        password: passwordInput,
+        displayName: displayName,
+        avatarEmoji: avatarEmoji,
+        avatarUrl: avatarUrl
+      };
+
+      await db.collection('users').doc(username).set(newUser);
+      currentUser = newUser;
+      localStorage.setItem('chat_user', JSON.stringify(currentUser));
+      showChatScreen();
+    }
+  } catch (err) {
+    console.error("❌ Ошибка авторизации:", err);
+    alert(" Ошибка доступа к Firestore: " + err.message + "\n\nПроверь Rules в консоли Firebase!");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerText = authMode === 'login' ? 'Войти' : 'Зарегистрироваться';
+  }
+};
+
+window.logout = function() {
   localStorage.removeItem('chat_user');
   location.reload();
+};
+
+function showChatScreen() {
+  document.getElementById('auth-screen').classList.remove('active');
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('chat-screen').style.display = 'flex';
+  updateDrawerUI();
+  switchTab('global');
 }
 
 // ==========================================
-// 2. ИНТЕРФЕЙС И НАВИГАЦИЯ
+// ИНТЕРФЕЙС И НАВИГАЦИЯ
 // ==========================================
-function showChat() {
-  document.getElementById('auth-screen').classList.remove('active');
-  document.getElementById('chat-screen').classList.add('active');
+
+window.toggleMenu = function() {
+  document.getElementById('drawer').classList.toggle('active');
+  document.getElementById('overlay').classList.toggle('active');
+};
+
+function updateDrawerUI() {
   document.getElementById('drawer-displayname').innerText = currentUser.displayName;
   document.getElementById('drawer-username').innerText = `@${currentUser.username}`;
-  renderAvatar(currentUser.avatar, document.getElementById('drawer-avatar-box'));
-  openGlobalChat();
-  listenIncomingCalls();
+  renderAvatar(currentUser, document.getElementById('drawer-avatar-box'));
 }
 
-function renderAvatar(avatarData, targetElement) {
-  if (!targetElement) return;
-  if (avatarData && avatarData.startsWith('data:image')) {
-    targetElement.innerHTML = `<img src="${avatarData}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`;
+function renderAvatar(userObj, targetElement) {
+  targetElement.innerHTML = '';
+  if (userObj.avatarUrl) {
+    const img = document.createElement('img');
+    img.src = userObj.avatarUrl;
+    targetElement.appendChild(img);
   } else {
-    targetElement.innerText = avatarData || '👤';
+    targetElement.innerText = userObj.avatarEmoji || '👤';
   }
 }
 
-function toggleMenu() {
-  document.getElementById('drawer').classList.toggle('open');
-  document.getElementById('overlay').classList.toggle('active');
-}
-
-function switchTab(tab) {
+window.switchTab = function(tab) {
+  activeTab = tab;
   document.getElementById('tab-global').classList.toggle('active', tab === 'global');
   document.getElementById('tab-directs').classList.toggle('active', tab === 'directs');
-  if (tab === 'global') openGlobalChat();
-  else showDirectsList();
-}
 
-function openGlobalChat() {
-  currentChat = 'global';
-  document.getElementById('chat-title').innerText = "Общий Чат 🌐";
-  document.getElementById('chat-subtitle').innerText = "онлайн";
-  document.getElementById('back-btn').style.display = 'none';
-  document.getElementById('chats-list').style.display = 'none';
-  document.getElementById('messages-container').style.display = 'flex';
-  document.getElementById('input-area').style.display = 'flex';
-  document.getElementById('tabs-bar').style.display = 'flex';
-  renderChatHeaderAvatar('🌐');
-  loadMessages();
-}
+  const chatsList = document.getElementById('chats-list');
+  const messagesContainer = document.getElementById('messages-container');
+  const inputArea = document.getElementById('input-area');
+  const backBtn = document.getElementById('back-btn');
 
-function showDirectsList() {
-  document.getElementById('chats-list').style.display = 'block';
-  document.getElementById('messages-container').style.display = 'none';
-  document.getElementById('input-area').style.display = 'none';
-  loadUsersList();
-}
+  if (tab === 'global') {
+    chatsList.style.display = 'none';
+    messagesContainer.style.display = 'flex';
+    inputArea.style.display = 'flex';
+    backBtn.style.display = 'none';
+    document.getElementById('chat-title').innerText = 'Общий Чат 🌐';
+    renderAvatar({ avatarEmoji: '🌐' }, document.getElementById('chat-header-avatar'));
+    listenMessages('global');
+  } else if (tab === 'directs') {
+    chatsList.style.display = 'block';
+    messagesContainer.style.display = 'none';
+    inputArea.style.display = 'none';
+    backBtn.style.display = 'none';
+    document.getElementById('chat-title').innerText = 'Личные сообщения';
+    loadDirectsList();
+  }
+};
 
-function getChatId() {
-  if (currentChat === 'global') return 'global';
-  return [currentUser.username, currentChat].sort().join('_');
-}
+// ==========================================
+// ЛИЧНЫЕ СООБЩЕНИЯ (ДИАЛОГИ)
+// ==========================================
 
-async function loadUsersList() {
+async function loadDirectsList() {
   const container = document.getElementById('users-container');
-  container.innerHTML = '<div style="padding:15px; color:var(--text-muted);">Загрузка диалогов...</div>';
+  container.innerHTML = '<div style="padding:15px; text-align:center; color:#888">Загрузка диалогов...</div>';
 
   try {
     const snapshot = await db.collection('messages').get();
-    const activeInteractions = new Set();
+    const chatsMap = new Map();
 
     snapshot.forEach(doc => {
       const data = doc.data();
       const chatId = data.chatId || 'global';
+
       if (chatId !== 'global' && chatId.includes(currentUser.username)) {
         const parts = chatId.split('_');
         const partner = parts.find(u => u !== currentUser.username);
-        if (partner) activeInteractions.add(partner);
+
+        if (partner) {
+          const existing = chatsMap.get(partner);
+          const msgTime = data.timestamp ? data.timestamp.seconds : 0;
+
+          if (!existing || msgTime > existing.time) {
+            chatsMap.set(partner, {
+              lastMsg: data.text || (data.imageUrl ? '📷 Фото' : data.audioUrl ? '🎙️ Голосовое' : data.circleUrl ? '📹 Видео' : 'Сообщение'),
+              time: msgTime
+            });
+          }
+        }
       }
     });
 
-    const accountsSnapshot = await db.collection('accounts').get();
-    allUsers = [];
+    if (chatsMap.size === 0) {
+      container.innerHTML = '<div style="padding:20px; text-align:center; color:#888">У вас пока нет диалогов.<br>Введи логин в поиске выше, чтобы написать первым!</div>';
+      allLoadedChats = [];
+      return;
+    }
+
+    const accountsSnapshot = await db.collection('users').get();
+    allLoadedChats = [];
+
     accountsSnapshot.forEach(doc => {
-      if (activeInteractions.has(doc.id) || doc.id !== currentUser.username) {
-        allUsers.push(doc.data());
+      if (chatsMap.has(doc.id)) {
+        const userData = doc.data();
+        const chatMetaData = chatsMap.get(doc.id);
+        allLoadedChats.push({
+          ...userData,
+          lastMsg: chatMetaData.lastMsg,
+          time: chatMetaData.time
+        });
       }
     });
 
-    renderUsersContainer(allUsers);
-  } catch (err) {
-    container.innerHTML = '<div style="padding:15px; color:red;">Ошибка загрузки диалогов</div>';
+    allLoadedChats.sort((a, b) => b.time - a.time);
+    renderUsersList(allLoadedChats);
+  } catch (e) {
+    console.error("❌ Ошибка загрузки ЛС:", e);
   }
 }
 
-function openDirectChat(targetUser) {
-  if (targetUser === currentUser.username) return;
-  currentChat = targetUser;
-  document.getElementById('back-btn').style.display = 'block';
-  document.getElementById('chats-list').style.display = 'none';
-  document.getElementById('messages-container').style.display = 'flex';
-  document.getElementById('input-area').style.display = 'flex';
-  document.getElementById('tabs-bar').style.display = 'none';
-  
-  const targetObj = allUsers.find(u => u.username === targetUser);
-  document.getElementById('chat-title').innerText = targetObj ? targetObj.displayName : targetUser;
-  document.getElementById('chat-subtitle').innerText = `@${targetUser}`;
-  renderChatHeaderAvatar(targetObj ? targetObj.avatar : '👤');
-
-  loadMessages();
-}
-
-function renderChatHeaderAvatar(avatar) {
-  renderAvatar(avatar, document.getElementById('chat-header-avatar'));
-}
-
-function renderUsersContainer(users) {
+function renderUsersList(users) {
   const container = document.getElementById('users-container');
   container.innerHTML = '';
+
   users.forEach(u => {
     const item = document.createElement('div');
-    item.style.cssText = 'display:flex; align-items:center; gap:12px; padding:12px 15px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05);';
-    
+    item.className = 'chat-item';
+
     const avBox = document.createElement('div');
-    avBox.style.cssText = 'width:40px; height:40px; border-radius:50%; background:#242f3d; display:flex; align-items:center; justify-content:center; font-size:18px;';
-    renderAvatar(u.avatar, avBox);
+    avBox.className = 'avatar-box';
+    renderAvatar(u, avBox);
 
-    const info = document.createElement('div');
-    info.innerHTML = `<div style="font-weight:bold;">${u.displayName}</div><div style="font-size:12px; color:var(--text-muted);">@${u.username}</div>`;
+    const timeStr = u.time ? new Date(u.time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
-    item.appendChild(avBox);
-    item.appendChild(info);
-    item.onclick = () => openDirectChat(u.username);
+    item.innerHTML = `
+      <div class="chat-item-info">
+        <div class="chat-item-top">
+          <span class="chat-item-name">${u.displayName}</span>
+          <span class="chat-item-time">${timeStr}</span>
+        </div>
+        <div class="chat-item-lastmsg">${u.lastMsg || `@${u.username}`}</div>
+      </div>
+    `;
+
+    item.prepend(avBox);
+    item.onclick = () => openDirectChat(u);
     container.appendChild(item);
   });
 }
 
-function filterUsersList() {
-  const q = document.getElementById('user-search-input').value.toLowerCase();
-  const filtered = allUsers.filter(u => u.username.toLowerCase().includes(q) || u.displayName.toLowerCase().includes(q));
-  renderUsersContainer(filtered);
+window.filterUsersList = async function() {
+  const query = document.getElementById('user-search-input').value.trim().toLowerCase();
+
+  if (!query) {
+    renderUsersList(allLoadedChats);
+    return;
+  }
+
+  const snapshot = await db.collection('users').get();
+  const searchResults = [];
+
+  snapshot.forEach(doc => {
+    const u = doc.data();
+    if (u.username !== currentUser.username && (u.username.toLowerCase().includes(query) || u.displayName.toLowerCase().includes(query))) {
+      searchResults.push({
+        ...u,
+        lastMsg: `@${u.username}`
+      });
+    }
+  });
+
+  renderUsersList(searchResults);
+};
+
+function openDirectChat(partnerUser) {
+  const chatId = [currentUser.username, partnerUser.username].sort().join('_');
+  document.getElementById('chats-list').style.display = 'none';
+  document.getElementById('messages-container').style.display = 'flex';
+  document.getElementById('input-area').style.display = 'flex';
+  document.getElementById('back-btn').style.display = 'block';
+
+  document.getElementById('chat-title').innerText = partnerUser.displayName;
+  renderAvatar(partnerUser, document.getElementById('chat-header-avatar'));
+
+  listenMessages(chatId);
 }
 
 // ==========================================
-// 3. ЧАТ И СООБЩЕНИЯ
+// ЛОГИКА ЧАТА И СООБЩЕНИЙ
 // ==========================================
-function loadMessages() {
-  if (unsubscribeListener) unsubscribeListener();
-  const targetChatId = getChatId();
 
-  unsubscribeListener = db.collection('messages')
+function listenMessages(chatId) {
+  currentChatId = chatId;
+  const container = document.getElementById('messages-container');
+  container.innerHTML = '';
+
+  if (unsubscribeMessages) unsubscribeMessages();
+
+  unsubscribeMessages = db.collection('messages')
+    .where('chatId', '==', chatId)
+    .orderBy('timestamp', 'asc')
     .onSnapshot(snapshot => {
-      const container = document.getElementById('messages-container');
-      let messages = [];
-
-      snapshot.forEach(doc => {
-        const data = doc.data();
-        if ((data.chatId || 'global') === targetChatId) {
-          messages.push({ id: doc.id, ...data });
-        }
-      });
-
-      messages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-
       container.innerHTML = '';
-      messages.forEach(data => {
-        const isMe = data.author === currentUser.username;
-        const msgDiv = document.createElement('div');
-        msgDiv.className = `msg ${isMe ? 'outgoing' : 'incoming'}`;
-        
-        let content = '';
-
-        if (data.replyTo) {
-          content += `<div style="background:rgba(0,0,0,0.2); padding:4px 8px; border-left:3px solid var(--accent-color); margin-bottom:5px; font-size:12px; border-radius:4px;">
-            <b>${data.replyTo.author}:</b> ${data.replyTo.text}
-          </div>`;
-        }
-
-        if (data.image) {
-          content += `<img src="${data.image}" style="max-width:100%; border-radius:8px; margin-bottom:5px;">`;
-        }
-        
-        if (data.audio) {
-          content += `<audio src="${data.audio}" controls style="width: 100%; max-width: 220px; height: 36px; outline: none; border-radius: 20px; margin-top: 4px;"></audio>`;
-        }
-
-        if (data.videoCircle) {
-          content += `<video src="${data.videoCircle}" class="circle-video" controls autoplay loop muted></video>`;
-        }
-        
-        if (data.text) {
-          content += `<div>${data.text}</div>`;
-        }
-
-        if (data.isDurakInvite) {
-          content += `
-            <div style="text-align:center; padding: 8px; background:rgba(0,0,0,0.2); border-radius:8px; margin-top:5px;">
-              <b style="font-size:15px;">🃏 Игра в Дурака (${data.deckSize} карт)</b><br>
-              <button class="btn primary" style="margin-top:8px; width:100%;" onclick="joinDurakGame('${data.gameId}')">Принять вызов</button>
-            </div>
-          `;
-        }
-
-        msgDiv.innerHTML = `
-          ${!isMe ? `<div class="msg-author" onclick="replyTo('${data.author}', '${data.text || 'медиа'}')">${data.displayName || data.author}</div>` : ''}
-          ${content}
-        `;
-
-        msgDiv.ondblclick = () => replyTo(data.displayName || data.author, data.text || 'Медиа-файл');
-        container.appendChild(msgDiv);
+      snapshot.forEach(doc => {
+        renderMessageItem(doc.data(), doc.id);
       });
-
       container.scrollTop = container.scrollHeight;
-    });
+    }, err => console.error("❌ Ошибка получения сообщений:", err));
 }
 
-function sendMessage(extraData = {}) {
+function renderMessageItem(msg, id) {
+  const container = document.getElementById('messages-container');
+  const div = document.createElement('div');
+  div.className = `message ${msg.sender === currentUser.username ? 'my' : ''}`;
+
+  let contentHtml = `<div class="msg-author">${msg.senderName || msg.sender}</div>`;
+
+  if (msg.replyToText) {
+    contentHtml += `<div style="border-left:2px solid #fff; padding-left:6px; margin-bottom:4px; font-size:12px; opacity:0.8;">${msg.replyToText}</div>`;
+  }
+
+  if (msg.text) contentHtml += `<div>${escapeHtml(msg.text)}</div>`;
+  if (msg.imageUrl) contentHtml += `<img src="${msg.imageUrl}" class="msg-img">`;
+  if (msg.audioUrl) contentHtml += `<audio src="${msg.audioUrl}" controls style="max-width:100%; margin-top:4px;"></audio>`;
+  if (msg.circleUrl) contentHtml += `<video src="${msg.circleUrl}" class="circle-video" controls autoplay loop muted></video>`;
+
+  div.innerHTML = contentHtml;
+  div.ondblclick = () => setReply(msg);
+  container.appendChild(div);
+}
+
+window.sendMessage = async function(extraData = {}) {
   const input = document.getElementById('message-input');
   const text = input.value.trim();
 
-  if (text || extraData.image || extraData.audio || extraData.videoCircle || extraData.isDurakInvite) {
-    const payload = {
-      chatId: getChatId(),
-      text: text,
-      author: currentUser.username,
-      displayName: currentUser.displayName,
-      avatar: currentUser.avatar,
-      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-      ...extraData
-    };
+  if (!text && !extraData.imageUrl && !extraData.audioUrl && !extraData.circleUrl) return;
 
-    if (replyingToMessage) {
-      payload.replyTo = replyingToMessage;
-      cancelReply();
-    }
+  const msgPayload = {
+    chatId: currentChatId,
+    sender: currentUser.username,
+    senderName: currentUser.displayName,
+    text: text,
+    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+    ...extraData
+  };
 
-    db.collection('messages').add(payload);
-    sendSound.play().catch(() => {});
-    input.value = '';
+  if (replyMessage) {
+    msgPayload.replyToText = `${replyMessage.sender}: ${replyMessage.text || 'Вложение'}`;
+    cancelReply();
   }
-}
 
-function handleKeyPress(e) {
-  if (e.key === 'Enter') sendMessage();
-}
+  await db.collection('messages').add(msgPayload);
+  input.value = '';
+};
 
-function replyTo(author, text) {
-  replyingToMessage = { author, text };
-  document.getElementById('reply-preview-text').innerText = `Ответ на ${author}: ${text}`;
+window.handleKeyPress = function(e) {
+  if (e.key === 'Enter') window.sendMessage();
+};
+
+function setReply(msg) {
+  replyMessage = msg;
+  document.getElementById('reply-preview-text').innerText = `Ответ для ${msg.sender}: ${msg.text || 'Вложение'}`;
   document.getElementById('reply-preview').style.display = 'flex';
 }
 
-function cancelReply() {
-  replyingToMessage = null;
+window.cancelReply = function() {
+  replyMessage = null;
   document.getElementById('reply-preview').style.display = 'none';
-}
+};
 
-function sendImage(e) {
+window.toggleSearch = function() {
+  const sb = document.getElementById('search-bar');
+  sb.style.display = sb.style.display === 'none' ? 'block' : 'none';
+};
+
+window.searchMessages = function() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  const msgs = document.querySelectorAll('.message');
+  msgs.forEach(m => {
+    m.style.display = m.innerText.toLowerCase().includes(q) ? 'block' : 'none';
+  });
+};
+
+window.handleTyping = function() {};
+
+// ==========================================
+// МЕДИА (ГОЛОСОВЫЕ / КРУЖОЧКИ / ФОТО)
+// ==========================================
+
+window.sendImage = async function(e) {
   const file = e.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = ev => sendMessage({ image: ev.target.result });
-  reader.readAsDataURL(file);
+  const base64 = await convertFileToBase64(file);
+  window.sendMessage({ imageUrl: base64 });
+};
+
+function convertFileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = error => reject(error);
+  });
 }
 
-function toggleSearch() {
-  const bar = document.getElementById('search-bar');
-  bar.style.display = bar.style.display === 'none' ? 'block' : 'none';
-}
-
-function searchMessages() {
-  const q = document.getElementById('search-input').value.toLowerCase();
-  const msgs = document.querySelectorAll('.messages-container .msg');
-  msgs.forEach(m => m.style.display = m.innerText.toLowerCase().includes(q) ? 'block' : 'none');
-}
-
-function handleTyping() {}
-
-// ==========================================
-// 4. ГОЛОСОВЫЕ И КРУЖОЧКИ
-// ==========================================
-async function toggleVoiceRecord() {
+window.toggleVoiceRecord = async function() {
   const btn = document.getElementById('voice-btn');
-  if (!isRecording) {
+  if (!isRecordingVoice) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorder = new MediaRecorder(stream);
       audioChunks = [];
       mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-      mediaRecorder.onstop = () => {
-        stream.getTracks().forEach(t => t.stop());
+      mediaRecorder.onstop = async () => {
         const blob = new Blob(audioChunks, { type: 'audio/webm' });
-        const reader = new FileReader();
-        reader.onload = ev => sendMessage({ audio: ev.target.result });
-        reader.readAsDataURL(blob);
+        const base64 = await convertBlobToBase64(blob);
+        window.sendMessage({ audioUrl: base64 });
       };
       mediaRecorder.start();
-      isRecording = true;
-      btn.innerText = '🔴';
+      isRecordingVoice = true;
+      btn.style.color = '#ff4d4d';
     } catch (e) {
-      alert("Нет доступа к микрофону!");
+      alert("⚠️ Нет доступа к микрофону!");
     }
   } else {
     mediaRecorder.stop();
-    isRecording = false;
-    btn.innerText = '🎙️';
+    isRecordingVoice = false;
+    btn.style.color = '#fff';
   }
-}
+};
 
-async function toggleCircleRecord() {
+window.toggleCircleRecord = async function() {
   const btn = document.getElementById('circle-btn');
   if (!isRecordingCircle) {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 300, height: 300 }, audio: true });
-      circleRecorder = new MediaRecorder(stream);
-      circleChunks = [];
-      circleRecorder.ondataavailable = e => circleChunks.push(e.data);
-      circleRecorder.onstop = () => {
-        stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(circleChunks, { type: 'video/webm' });
-        const reader = new FileReader();
-        reader.onload = ev => sendMessage({ videoCircle: ev.target.result });
-        reader.readAsDataURL(blob);
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = [];
+      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(audioChunks, { type: 'video/webm' });
+        const base64 = await convertBlobToBase64(blob);
+        window.sendMessage({ circleUrl: base64 });
       };
-      circleRecorder.start();
+      mediaRecorder.start();
       isRecordingCircle = true;
-      btn.innerText = '🔴';
+      btn.style.color = '#ff4d4d';
     } catch (e) {
-      alert("Нет доступа к камере/микрофону!");
+      alert("⚠️ Нет доступа к камере!");
     }
   } else {
-    circleRecorder.stop();
+    mediaRecorder.stop();
     isRecordingCircle = false;
-    btn.innerText = '📹';
+    btn.style.color = '#fff';
   }
+};
+
+function convertBlobToBase64(blob) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.readAsDataURL(blob);
+  });
 }
 
 // ==========================================
-// 5. РЕДАКТИРОВАНИЕ ПРОФИЛЯ
+// НАСТРОЙКИ ПРОФИЛЯ
 // ==========================================
-function openProfileModal() {
+
+window.openProfileModal = function() {
+  window.toggleMenu();
   document.getElementById('edit-display-name').value = currentUser.displayName;
+  document.getElementById('edit-avatar-emoji').value = currentUser.avatarEmoji || '';
   document.getElementById('profile-modal').classList.add('active');
-  toggleMenu();
-}
+};
 
-function closeProfileModal() {
+window.closeProfileModal = function() {
   document.getElementById('profile-modal').classList.remove('active');
-}
+};
 
-async function saveProfileChanges() {
-  const newName = document.getElementById('edit-display-name').value.trim() || currentUser.displayName;
+window.saveProfileChanges = async function() {
+  const newName = document.getElementById('edit-display-name').value.trim();
   const newEmoji = document.getElementById('edit-avatar-emoji').value.trim();
-  const newFile = document.getElementById('edit-avatar-file').files[0];
+  const file = document.getElementById('edit-avatar-file').files[0];
 
-  let newAvatar = currentUser.avatar;
-  if (newEmoji) newAvatar = newEmoji;
-  if (newFile) {
-    newAvatar = await new Promise(res => {
-      const r = new FileReader();
-      r.onload = ev => res(ev.target.result);
-      r.readAsDataURL(newFile);
-    });
-  }
+  if (newName) currentUser.displayName = newName;
+  if (newEmoji) currentUser.avatarEmoji = newEmoji;
+  if (file) currentUser.avatarUrl = await convertFileToBase64(file);
 
-  currentUser.displayName = newName;
-  currentUser.avatar = newAvatar;
-
-  await db.collection('accounts').doc(currentUser.username).update({ displayName: newName, avatar: newAvatar });
+  await db.collection('users').doc(currentUser.username).update(currentUser);
   localStorage.setItem('chat_user', JSON.stringify(currentUser));
-  document.getElementById('drawer-displayname').innerText = newName;
-  renderAvatar(newAvatar, document.getElementById('drawer-avatar-box'));
-  closeProfileModal();
+
+  updateDrawerUI();
+  window.closeProfileModal();
+};
+
+function escapeHtml(text) {
+  return text.replace(/[&<>"']/g, function(m) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+  });
 }
 
 // ==========================================
-// 6. ЗВОНКИ
+// МОДУЛЬ: ДУРАК ОНЛАЙН
 // ==========================================
-function listenIncomingCalls() {}
-async function startOrJoinGroupCall() {
-  document.getElementById('call-modal').classList.add('active');
-  localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-  document.getElementById('local-video').srcObject = localStream;
-}
-function toggleMic() {
-  if (localStream) {
-    const track = localStream.getAudioTracks()[0];
-    track.enabled = !track.enabled;
-    document.getElementById('mic-btn').innerText = track.enabled ? '🎤' : '🔇';
-  }
-}
-function toggleCam() {
-  if (localStream) {
-    const track = localStream.getVideoTracks()[0];
-    track.enabled = !track.enabled;
-    document.getElementById('cam-btn').innerText = track.enabled ? '📷' : '🚫';
-  }
-}
-function hangUpGroupCall() {
-  if (localStream) localStream.getTracks().forEach(t => t.stop());
-  document.getElementById('call-modal').classList.remove('active');
-}
-function answerCall() {}
-function rejectCall() {}
 
-// ==========================================
-// 7. ИГРА В ДУРАКА
-// ==========================================
-function openDurakInviteModal() {
-  if (currentChat === 'global') return alert("Выберите соперника в ЛС!");
+window.openDurakInviteModal = function() {
   document.getElementById('durak-modal').classList.add('active');
-  document.getElementById('durak-setup').style.display = 'block';
-  document.getElementById('durak-table').style.display = 'none';
-}
-function closeDurakModal() {
+};
+
+window.closeDurakModal = function() {
   document.getElementById('durak-modal').classList.remove('active');
-}
-async function createDurakGame() {
-  const deckSize = parseInt(document.querySelector('input[name="deck-size"]:checked').value);
-  const deck = generateDeck(deckSize);
-  const trumpCard = deck.pop();
-  const gameRef = await db.collection('durak_games').add({
-    player1: currentUser.username,
-    player2: currentChat,
-    deck: deck,
-    trump: trumpCard,
-    p1Hand: deck.splice(0, 6),
-    p2Hand: deck.splice(0, 6),
-    board: [],
-    attacker: currentUser.username,
-    defender: currentChat,
-    status: 'active'
-  });
-  sendMessage({ isDurakInvite: true, gameId: gameRef.id, deckSize: deckSize });
-  closeDurakModal();
-}
-function generateDeck(size) {
-  const suits = ['♠', '♥', '♦', '♣'];
-  const values = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
-  let deck = [];
-  const copies = size === 108 ? 2 : 1;
-  for (let c = 0; c < copies; c++) {
-    for (let s of suits) {
-      for (let v of values) deck.push({ suit: s, value: v, isRed: s === '♥' || s === '♦' });
-    }
-    deck.push({ suit: '🃏', value: 'JOKER', isRed: true });
-    deck.push({ suit: '🃏', value: 'JOKER', isRed: false });
-  }
-  return deck.sort(() => Math.random() - 0.5);
-}
-function joinDurakGame(gameId) {
-  currentDurakGameId = gameId;
-  document.getElementById('durak-modal').classList.add('active');
-  document.getElementById('durak-setup').style.display = 'none';
-  document.getElementById('durak-table').style.display = 'flex';
-  listenDurakGame();
-}
-function listenDurakGame() {
   if (durakUnsubscribe) durakUnsubscribe();
-  durakUnsubscribe = db.collection('durak_games').doc(currentDurakGameId).onSnapshot(doc => {
-    if (doc.exists) renderDurakBoard(doc.data());
-  });
-}
-function renderDurakBoard(game) {
-  const isP1 = currentUser.username === game.player1;
-  const myHand = isP1 ? game.p1Hand : game.p2Hand;
-  const oppHand = isP1 ? game.p2Hand : game.p1Hand;
+};
 
-  document.getElementById('durak-trump-info').innerText = `Козырь: ${game.trump.value} ${game.trump.suit}`;
-  document.getElementById('durak-deck-count').innerText = `Карт в колоде: ${game.deck.length}`;
-  document.getElementById('durak-turn-info').innerText = `Ходит: @${game.attacker}`;
+window.createDurakGame = async function() {
+  const deckSize = parseInt(document.querySelector('input[name="deck-size"]:checked').value);
+  const suits = ['♠', '♥', '♦', '♣'];
+  const values54 = ['6','7','8','9','10','J','Q','K','A'];
 
-  const oppBox = document.getElementById('durak-opponent-hand');
-  oppBox.innerHTML = '';
-  oppHand.forEach(() => {
-    const card = document.createElement('div');
-    card.className = 'card back';
-    oppBox.appendChild(card);
-  });
-
-  const myBox = document.getElementById('durak-my-hand');
-  myBox.innerHTML = '';
-  myHand.forEach((cardData, idx) => {
-    const card = createCardElement(cardData);
-    card.onclick = () => playCard(cardData, idx, game);
-    myBox.appendChild(card);
-  });
-
-  const boardBox = document.getElementById('durak-board');
-  boardBox.innerHTML = '';
-  game.board.forEach(pair => {
-    const pairDiv = document.createElement('div');
-    pairDiv.className = 'card-pair';
-    pairDiv.appendChild(createCardElement(pair.attack));
-    if (pair.defend) {
-      const def = createCardElement(pair.defend);
-      def.classList.add('defend-card');
-      pairDiv.appendChild(def);
-    }
-    boardBox.appendChild(pairDiv);
-  });
-}
-function createCardElement(data) {
-  const card = document.createElement('div');
-  card.className = `card ${data.isRed ? 'red' : ''}`;
-  card.innerHTML = `<div>${data.value}</div><div style="font-size:20px; text-align:center;">${data.suit}</div>`;
-  return card;
-}
-async function playCard(card, index, game) {
-  const isAttacker = currentUser.username === game.attacker;
-  const isP1 = currentUser.username === game.player1;
-
-  if (isAttacker) {
-    game.board.push({ attack: card, defend: null });
-    if (isP1) game.p1Hand.splice(index, 1);
-    else game.p2Hand.splice(index, 1);
-  } else {
-    const undefIndex = game.board.findIndex(p => !p.defend);
-    if (undefIndex !== -1) {
-      game.board[undefIndex].defend = card;
-      if (isP1) game.p1Hand.splice(index, 1);
-      else game.p2Hand.splice(index, 1);
-    }
-  }
-  await db.collection('durak_games').doc(currentDurakGameId).update(game);
-}
-async function handleDurakAction() {
-  const gameRef = db.collection('durak_games').doc(currentDurakGameId);
-  const doc = await gameRef.get();
-  let game = doc.data();
-  const isAttacker = currentUser.username === game.attacker;
-
-  if (isAttacker) {
-    game.board = [];
-    const temp = game.attacker;
-    game.attacker = game.defender;
-    game.defender = temp;
-  } else {
-    const isP1 = currentUser.username === game.player1;
-    game.board.forEach(p => {
-      if (p.attack) (isP1 ? game.p1Hand : game.p2Hand).push(p.attack);
-      if (p.defend) (isP1 ? game.p1Hand : game.p2Hand).push(p.defend);
+  let deck = [];
+  suits.forEach(s => {
+    values54.forEach(v => {
+      deck.push({ suit: s, value: v, isRed: s === '♥' || s === '♦' });
     });
-    game.board = [];
-  }
-  await gameRef.update(game);
+  });
+
+  if (deckSize === 108) deck = [...deck, ...deck];
+  deck.sort(() => Math.random() - 0.5);
+
+  const trump = deck[deck.length - 1];
+  const p1Hand = deck.splice(0, 6);
+
+  const gameData = {
+    host: currentUser.username,
+    guest: null,
+    deck: deck,
+    trump: trump,
+    board: [],
+    turn: currentUser.username,
+    hands: {
+      [currentUser.username]: p1Hand
+    },
+    status: 'waiting'
+  };
+
+  const docRef = await db.collection('durak_games').add(gameData);
+  currentDurakGameId = docRef.id;
+
+  window.sendMessage({ text: `🃏 Игра в Дурака создана! ID: ${currentDurakGameId}` });
+  listenDurakGame(currentDurakGameId);
+};
+
+function listenDurakGame(gameId) {
+  document.getElementById('durak-setup').style.display = 'none';
+  document.getElementById('durak-table').style.display = 'block';
+
+  durakUnsubscribe = db.collection('durak_games').doc(gameId).onSnapshot(doc => {
+    if (!doc.exists) return;
+    const g = doc.data();
+    renderDurakTable(g);
+  });
 }
+
+function renderDurakTable(g) {
+  document.getElementById('durak-trump-info').innerText = `Козырь: ${g.trump.suit} ${g.trump.value}`;
+  document.getElementById('durak-deck-count').innerText = `Карт в колоде: ${g.deck.length}`;
+  document.getElementById('durak-turn-info').innerText = `Ход: ${g.turn}`;
+
+  const myHand = g.hands[currentUser.username] || [];
+  const myHandContainer = document.getElementById('durak-my-hand');
+  myHandContainer.innerHTML = '';
+
+  myHand.forEach((card, index) => {
+    const cardEl = document.createElement('div');
+    cardEl.className = `durak-card ${card.isRed ? 'red' : ''}`;
+    cardEl.innerText = `${card.value}\n${card.suit}`;
+    cardEl.onclick = () => playDurakCard(g, index);
+    myHandContainer.appendChild(cardEl);
+  });
+
+  const boardContainer = document.getElementById('durak-board');
+  boardContainer.innerHTML = '';
+  g.board.forEach(c => {
+    const cardEl = document.createElement('div');
+    cardEl.className = `durak-card ${c.isRed ? 'red' : ''}`;
+    cardEl.innerText = `${c.value}\n${c.suit}`;
+    boardContainer.appendChild(cardEl);
+  });
+}
+
+async function playDurakCard(game, cardIndex) {
+  if (game.turn !== currentUser.username) return alert("Сейчас не твой ход!");
+
+  const myHand = game.hands[currentUser.username];
+  const card = myHand.splice(cardIndex, 1)[0];
+  game.board.push(card);
+
+  await db.collection('durak_games').doc(currentDurakGameId).update({
+    board: game.board,
+    [`hands.${currentUser.username}`]: myHand
+  });
+}
+
+window.handleDurakAction = function() {};
+
+// ==========================================
+// МОДУЛЬ: ЗВОНКИ
+// ==========================================
+
+window.startOrJoinGroupCall = function() {
+  document.getElementById('call-modal').classList.add('active');
+  navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
+    document.getElementById('local-video').srcObject = stream;
+  }).catch(() => alert("⚠️ Нет доступа к камере/микрофону"));
+};
+
+window.hangUpGroupCall = function() {
+  document.getElementById('call-modal').classList.remove('active');
+  const video = document.getElementById('local-video');
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach(track => track.stop());
+  }
+};
+
+window.toggleMic = function() {};
+window.toggleCam = function() {};
+window.answerCall = function() {};
+window.rejectCall = function() {};

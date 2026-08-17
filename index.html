@@ -2,12 +2,11 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Messenger & Durak Online</title>
+  
+  <!-- Стили -->
   <link rel="stylesheet" href="style.css">
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
-  <script src="firebase-config.js"></script>
 </head>
 <body>
 
@@ -35,7 +34,7 @@
   </div>
 
   <!-- Главный экран чата -->
-  <div id="chat-screen">
+  <div id="chat-screen" style="display:none;">
 
     <!-- Боковое меню (Drawer) -->
     <div id="drawer">
@@ -168,6 +167,23 @@
     <button onclick="rejectCall()" class="btn red">Сбросить</button>
   </div>
 
+  <!-- Firebase SDK (v8) -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  
+  <!-- Конфиг Firebase -->
+  <script src="firebase-config.js"></script>
+
+  <!-- Основная логика -->
   <script src="app.js"></script>
+
+  <!-- Регистрация Service Worker для sw.js -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => console.log('Service Worker зарегистрирован:', reg.scope))
+        .catch(err => console.error('Ошибка регистрации SW:', err));
+    }
+  </script>
 </body>
 </html>

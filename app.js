@@ -34,7 +34,7 @@ function initFirebase() {
       db = firebase.firestore();
       console.log("✅ Firebase Firestore успешно подключен");
     } else {
-      console.error("❌ Firebase SDK не найден. Проверь подключения в index.html и firebase-config.js");
+      console.error("❌ Firebase SDK не найден. Проверь подключения в index.html");
     }
   } catch (e) {
     console.error("❌ Ошибка инициализации Firebase:", e);
@@ -53,9 +53,6 @@ function checkSavedUser() {
   }
 }
 
-// ==========================================
-// ПРИВЯЗКА СОБЫТИЙ (БЕЗ INLINE-ОШИБОК)
-// ==========================================
 function setupEventListeners() {
   const btnLogin = document.getElementById('btn-show-login');
   const btnReg = document.getElementById('btn-show-reg');
@@ -71,22 +68,25 @@ function setupEventListeners() {
 // ==========================================
 window.toggleAuthMode = function(mode) {
   authMode = mode;
-  document.getElementById('btn-show-login').classList.toggle('active', mode === 'login');
-  document.getElementById('btn-show-reg').classList.toggle('active', mode === 'register');
-  document.getElementById('reg-extra-fields').style.display = mode === 'register' ? 'block' : 'none';
-  document.getElementById('auth-submit-btn').innerText = mode === 'login' ? 'Войти' : 'Зарегистрироваться';
+  const loginBtn = document.getElementById('btn-show-login');
+  const regBtn = document.getElementById('btn-show-reg');
+  const extraFields = document.getElementById('reg-extra-fields');
+  const submitBtn = document.getElementById('auth-submit-btn');
+
+  if (loginBtn) loginBtn.classList.toggle('active', mode === 'login');
+  if (regBtn) regBtn.classList.toggle('active', mode === 'register');
+  if (extraFields) extraFields.style.display = mode === 'register' ? 'block' : 'none';
+  if (submitBtn) submitBtn.innerText = mode === 'login' ? 'Войти' : 'Зарегистрироваться';
 };
 
 window.handleAuth = async function() {
-  console.log("🔘 Запуск авторизации...");
+  if (!db && typeof firebase !== 'undefined' && firebase.apps.length) {
+    db = firebase.firestore();
+  }
 
   if (!db) {
-    if (typeof firebase !== 'undefined' && firebase.apps.length) {
-      db = firebase.firestore();
-    } else {
-      alert("❌ База данных не подключена! Проверь firebase-config.js");
-      return;
-    }
+    alert("❌ База данных не подключена!");
+    return;
   }
 
   const usernameInput = document.getElementById('auth-username').value.trim();
@@ -119,7 +119,6 @@ window.handleAuth = async function() {
         alert("❌ Пользователь не найден! Перейди во вкладку 'Регистрация'.");
       }
     } else {
-      // Регистрация
       const doc = await db.collection('users').doc(username).get();
       if (doc.exists) {
         alert("⚠️ Этот логин уже занят!");
@@ -152,7 +151,7 @@ window.handleAuth = async function() {
     }
   } catch (err) {
     console.error("❌ Ошибка авторизации:", err);
-    alert(" Ошибка доступа к Firestore: " + err.message);
+    alert("Ошибка доступа: " + err.message);
   } finally {
     submitBtn.disabled = false;
     submitBtn.innerText = authMode === 'login' ? 'Войти' : 'Зарегистрироваться';
@@ -181,19 +180,21 @@ window.toggleMenu = function() {
 };
 
 function updateDrawerUI() {
-  document.getElementById('drawer-displayname').innerText = currentUser.displayName;
+  if (!currentUser) return;
+  document.getElementById('drawer-displayname').innerText = currentUser.displayName || currentUser.username;
   document.getElementById('drawer-username').innerText = `@${currentUser.username}`;
   renderAvatar(currentUser, document.getElementById('drawer-avatar-box'));
 }
 
 function renderAvatar(userObj, targetElement) {
+  if (!targetElement) return;
   targetElement.innerHTML = '';
-  if (userObj.avatarUrl) {
+  if (userObj && userObj.avatarUrl) {
     const img = document.createElement('img');
     img.src = userObj.avatarUrl;
     targetElement.appendChild(img);
   } else {
-    targetElement.innerText = userObj.avatarEmoji || '👤';
+    targetElement.innerText = (userObj && userObj.avatarEmoji) ? userObj.avatarEmoji : '👤';
   }
 }
 
@@ -226,7 +227,7 @@ window.switchTab = function(tab) {
 };
 
 // ==========================================
-// ЛИЧНЫЕ СООБЩЕНИЯ (ДИАЛОГИ)
+// ЛИЧНЫЕ СООБЩЕНИЯ
 // ==========================================
 async function loadDirectsList() {
   const container = document.getElementById('users-container');
@@ -259,7 +260,7 @@ async function loadDirectsList() {
     });
 
     if (chatsMap.size === 0) {
-      container.innerHTML = '<div style="padding:20px; text-align:center; color:#888">У вас пока нет диалогов.<br>Введи логин в поиске выше, чтобы написать первым!</div>';
+      container.innerHTML = '<div style="padding:20px; text-align:center; color:#888">У вас пока нет диалогов.<br>Введи логин в поиске ниже, чтобы написать!</div>';
       allLoadedChats = [];
       return;
     }
@@ -300,17 +301,18 @@ function renderUsersList(users) {
 
     const timeStr = u.time ? new Date(u.time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
-    item.innerHTML = `
-      <div class="chat-item-info">
-        <div class="chat-item-top">
-          <span class="chat-item-name">${u.displayName}</span>
-          <span class="chat-item-time">${timeStr}</span>
-        </div>
-        <div class="chat-item-lastmsg">${u.lastMsg || `@${u.username}`}</div>
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'chat-item-info';
+    infoDiv.innerHTML = `
+      <div class="chat-item-top">
+        <span class="chat-item-name">${escapeHtml(u.displayName || u.username)}</span>
+        <span class="chat-item-time">${timeStr}</span>
       </div>
+      <div class="chat-item-lastmsg">${escapeHtml(u.lastMsg || `@${u.username}`)}</div>
     `;
 
-    item.prepend(avBox);
+    item.appendChild(avBox);
+    item.appendChild(infoDiv);
     item.onclick = () => openDirectChat(u);
     container.appendChild(item);
   });
@@ -329,7 +331,7 @@ window.filterUsersList = async function() {
 
   snapshot.forEach(doc => {
     const u = doc.data();
-    if (u.username !== currentUser.username && (u.username.toLowerCase().includes(query) || u.displayName.toLowerCase().includes(query))) {
+    if (u.username !== currentUser.username && (u.username.toLowerCase().includes(query) || (u.displayName && u.displayName.toLowerCase().includes(query)))) {
       searchResults.push({
         ...u,
         lastMsg: `@${u.username}`
@@ -347,7 +349,7 @@ function openDirectChat(partnerUser) {
   document.getElementById('input-area').style.display = 'flex';
   document.getElementById('back-btn').style.display = 'block';
 
-  document.getElementById('chat-title').innerText = partnerUser.displayName;
+  document.getElementById('chat-title').innerText = partnerUser.displayName || partnerUser.username;
   renderAvatar(partnerUser, document.getElementById('chat-header-avatar'));
 
   listenMessages(chatId);
@@ -380,10 +382,10 @@ function renderMessageItem(msg, id) {
   const div = document.createElement('div');
   div.className = `message ${msg.sender === currentUser.username ? 'my' : ''}`;
 
-  let contentHtml = `<div class="msg-author">${msg.senderName || msg.sender}</div>`;
+  let contentHtml = `<div class="msg-author">${escapeHtml(msg.senderName || msg.sender)}</div>`;
 
   if (msg.replyToText) {
-    contentHtml += `<div style="border-left:2px solid #fff; padding-left:6px; margin-bottom:4px; font-size:12px; opacity:0.8;">${msg.replyToText}</div>`;
+    contentHtml += `<div style="border-left:2px solid #fff; padding-left:6px; margin-bottom:4px; font-size:12px; opacity:0.8;">${escapeHtml(msg.replyToText)}</div>`;
   }
 
   if (msg.text) contentHtml += `<div>${escapeHtml(msg.text)}</div>`;
@@ -398,14 +400,14 @@ function renderMessageItem(msg, id) {
 
 window.sendMessage = async function(extraData = {}) {
   const input = document.getElementById('message-input');
-  const text = input.value.trim();
+  const text = input ? input.value.trim() : '';
 
   if (!text && !extraData.imageUrl && !extraData.audioUrl && !extraData.circleUrl) return;
 
   const msgPayload = {
     chatId: currentChatId,
     sender: currentUser.username,
-    senderName: currentUser.displayName,
+    senderName: currentUser.displayName || currentUser.username,
     text: text,
     timestamp: firebase.firestore.FieldValue.serverTimestamp(),
     ...extraData
@@ -417,7 +419,7 @@ window.sendMessage = async function(extraData = {}) {
   }
 
   await db.collection('messages').add(msgPayload);
-  input.value = '';
+  if (input) input.value = '';
 };
 
 window.handleKeyPress = function(e) {
@@ -451,7 +453,7 @@ window.searchMessages = function() {
 window.handleTyping = function() {};
 
 // ==========================================
-// МЕДИА (ФОТО, ГОЛОСОВЫЕ, КРУЖОЧКИ)
+// МЕДИА
 // ==========================================
 window.sendImage = async function(e) {
   const file = e.target.files[0];
@@ -469,6 +471,14 @@ function convertFileToBase64(file) {
   });
 }
 
+function convertBlobToBase64(blob) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.readAsDataURL(blob);
+  });
+}
+
 window.toggleVoiceRecord = async function() {
   const btn = document.getElementById('voice-btn');
   if (!isRecordingVoice) {
@@ -481,6 +491,7 @@ window.toggleVoiceRecord = async function() {
         const blob = new Blob(audioChunks, { type: 'audio/webm' });
         const base64 = await convertBlobToBase64(blob);
         window.sendMessage({ audioUrl: base64 });
+        stream.getTracks().forEach(t => t.stop());
       };
       mediaRecorder.start();
       isRecordingVoice = true;
@@ -489,7 +500,7 @@ window.toggleVoiceRecord = async function() {
       alert("⚠️ Нет доступа к микрофону!");
     }
   } else {
-    mediaRecorder.stop();
+    if (mediaRecorder) mediaRecorder.stop();
     isRecordingVoice = false;
     btn.style.color = '#fff';
   }
@@ -507,6 +518,7 @@ window.toggleCircleRecord = async function() {
         const blob = new Blob(audioChunks, { type: 'video/webm' });
         const base64 = await convertBlobToBase64(blob);
         window.sendMessage({ circleUrl: base64 });
+        stream.getTracks().forEach(t => t.stop());
       };
       mediaRecorder.start();
       isRecordingCircle = true;
@@ -515,26 +527,18 @@ window.toggleCircleRecord = async function() {
       alert("⚠️ Нет доступа к камере!");
     }
   } else {
-    mediaRecorder.stop();
+    if (mediaRecorder) mediaRecorder.stop();
     isRecordingCircle = false;
     btn.style.color = '#fff';
   }
 };
-
-function convertBlobToBase64(blob) {
-  return new Promise(resolve => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result);
-    reader.readAsDataURL(blob);
-  });
-}
 
 // ==========================================
 // ПРОФИЛЬ
 // ==========================================
 window.openProfileModal = function() {
   window.toggleMenu();
-  document.getElementById('edit-display-name').value = currentUser.displayName;
+  document.getElementById('edit-display-name').value = currentUser.displayName || '';
   document.getElementById('edit-avatar-emoji').value = currentUser.avatarEmoji || '';
   document.getElementById('profile-modal').classList.add('active');
 };
@@ -560,6 +564,7 @@ window.saveProfileChanges = async function() {
 };
 
 function escapeHtml(text) {
+  if (!text) return '';
   return text.replace(/[&<>"']/g, function(m) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
   });
@@ -578,7 +583,8 @@ window.closeDurakModal = function() {
 };
 
 window.createDurakGame = async function() {
-  const deckSize = parseInt(document.querySelector('input[name="deck-size"]:checked').value);
+  const selectedSize = document.querySelector('input[name="deck-size"]:checked');
+  const deckSize = selectedSize ? parseInt(selectedSize.value) : 54;
   const suits = ['♠', '♥', '♦', '♣'];
   const values54 = ['6','7','8','9','10','J','Q','K','A'];
 
@@ -631,7 +637,7 @@ function renderDurakTable(g) {
   document.getElementById('durak-deck-count').innerText = `Карт в колоде: ${g.deck.length}`;
   document.getElementById('durak-turn-info').innerText = `Ход: ${g.turn}`;
 
-  const myHand = g.hands[currentUser.username] || [];
+  const myHand = (g.hands && g.hands[currentUser.username]) ? g.hands[currentUser.username] : [];
   const myHandContainer = document.getElementById('durak-my-hand');
   myHandContainer.innerHTML = '';
 
@@ -645,7 +651,7 @@ function renderDurakTable(g) {
 
   const boardContainer = document.getElementById('durak-board');
   boardContainer.innerHTML = '';
-  g.board.forEach(c => {
+  (g.board || []).forEach(c => {
     const cardEl = document.createElement('div');
     cardEl.className = `durak-card ${c.isRed ? 'red' : ''}`;
     cardEl.innerText = `${c.value}\n${c.suit}`;

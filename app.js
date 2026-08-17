@@ -138,7 +138,7 @@ function openGlobalChat() {
   document.getElementById('back-btn').style.display = 'none';
   document.getElementById('chats-list').style.display = 'none';
   document.getElementById('messages-container').style.display = 'flex';
-  document.getElementById('input-area').style.display = 'flex';
+  document.getElementById('input-area').style.display = 'flex'; // Гарантированный показ строки ввода
   document.getElementById('tabs-bar').style.display = 'flex';
   renderChatHeaderAvatar('🌐');
   loadMessages();
@@ -207,7 +207,7 @@ function openDirectChat(targetUser) {
   document.getElementById('back-btn').style.display = 'block';
   document.getElementById('chats-list').style.display = 'none';
   document.getElementById('messages-container').style.display = 'flex';
-  document.getElementById('input-area').style.display = 'flex';
+  document.getElementById('input-area').style.display = 'flex'; // Гарантированный показ строки ввода
   document.getElementById('tabs-bar').style.display = 'none';
   
   const targetObj = allUsers.find(u => u.username === targetUser);
@@ -290,9 +290,12 @@ function loadMessages() {
         if (data.image) {
           content += `<img src="${data.image}" style="max-width:100%; border-radius:8px; margin-bottom:5px;">`;
         }
+        
+        // ФИКС АУДИОПЛЕЕРА: аккуратно вписывается в бабл
         if (data.audio) {
-          content += `<audio src="${data.audio}" controls style="max-width:200px; height:35px;"></audio>`;
+          content += `<audio src="${data.audio}" controls style="width: 100%; max-width: 220px; height: 36px; outline: none; border-radius: 20px; margin-top: 4px;"></audio>`;
         }
+        
         if (data.text) {
           content += `<div>${data.text}</div>`;
         }

@@ -314,3 +314,49 @@ header {
   max-width: 400px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
+
+/* Фікс висоти для мобільних браузерів */
+body {
+  height: 100dvh; /* Використовуємо dynamic viewport height */
+}
+
+#chat-screen {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Контейнер повідомлень має стискатися, а не виштовхувати инпут */
+#messages-container {
+  flex: 1 1 auto;
+  min-height: 0; 
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Поле вводу завжди закріплене знизу */
+#input-area {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom)); /* Фікс для вирізів та жестової смужки на мобілках */
+  background: #18181c;
+  border-top: 1px solid #2a2a32;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+}
+
+#message-input {
+  flex: 1;
+  min-width: 0; /* Не дає інпуту роздувати контейнер */
+  padding: 10px 14px;
+  background: #222228;
+  border: 1px solid #2a2a32 !important;
+  outline: none !important;
+  color: #fff;
+  border-radius: 20px;
+  font-size: 16px; /* 16px запобігає авто-зуму екрана в iOS/Android */
+}

@@ -1,20 +1,20 @@
 let currentUser = JSON.parse(localStorage.getItem('chat_user')) || null;
 let currentChat = 'global';
 let unsubscribeListener = null;
+let groupCallListener = null;
 let typingTimeout = null;
 let authMode = 'login';
 let replyingToMessage = null;
 let allUsers = [];
 
-// Переменные WebRTC & Медиа
-let peerConnection = null;
+// Переменные WebRTC & Групповых звонков
 let localStream = null;
-let remoteStream = null;
+let peerConnections = {}; // Map: username -> RTCPeerConnection
 let activeCallId = null;
 let isMicOn = true;
 let isCamOn = true;
 
-// Переменные для Записи Голосовых
+// Переменные Записи Голосовых
 let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
@@ -60,6 +60,43 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
+// ==========================================
+// ПУШ-УВЕДОМЛЕНИЯ
+// ==========================================
+async function initPushNotifications() {
+  if ('serviceWorker' in navigator && 'Notification' in window) {
+    try {
+      const reg = await navigator.serviceWorker.register('sw.js');
+      console.log('Service Worker зареган!', reg);
+      
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        console.log('Разрешение на пуши получено.');
+      }
+    } catch (e) {
+      console.log('Ошибка инициализации пушей:', e);
+    }
+  }
+}
+
+function triggerPushNotification(title, body) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.ready.then(reg => {
+        reg.showNotification(title, {
+          body: body,
+          icon: 'https://cdn-icons-png.flaticon.com/512/906/906377.png'
+        });
+      });
+    } else {
+      new Notification(title, { body: body });
+    }
+  }
+}
+
+// ==========================================
+// АВТОРИЗАЦИЯ И ПРОФИЛЬ
+// ==========================================
 function toggleAuthMode(mode) {
   authMode = mode;
   document.getElementById('btn-show-login').style.background = mode === 'login' ? '#5288c1' : '#334455';
@@ -136,9 +173,6 @@ function renderAvatar(avatarData, targetElement) {
   }
 }
 
-// ==========================================
-// СМЕНА НИКА И АВАТАРКИ
-// ==========================================
 function openProfileModal() {
   document.getElementById('edit-display-name').value = currentUser.displayName;
   document.getElementById('profile-modal').classList.add('active');
@@ -193,8 +227,8 @@ function showChat() {
   updateUserPresence();
   setInterval(updateUserPresence, 30000);
 
+  initPushNotifications();
   listenForIncomingCalls();
-  listenForTypingStatus();
   openGlobalChat();
 }
 
@@ -234,8 +268,10 @@ function openGlobalChat() {
   document.getElementById('messages-container').style.display = 'flex';
   document.getElementById('input-area').style.display = 'flex';
   document.getElementById('tabs-bar').style.display = 'flex';
+
   loadMessages();
   listenForTypingStatus();
+  listenForGroupCalls();
 }
 
 function openDirectChat(targetUser) {
@@ -264,6 +300,7 @@ function openDirectChat(targetUser) {
 
   loadMessages();
   listenForTypingStatus();
+  listenForGroupCalls();
 }
 
 function getChatId() {
@@ -273,7 +310,7 @@ function getChatId() {
 }
 
 // ==========================================
-// УМНЫЙ СПИСОК ДИАЛОГОВ И ПОИСК ЮЗЕРОВ
+// СПИСОК ДИАЛОГОВ И ПОИСК
 // ==========================================
 async function showDirectsList() {
   document.getElementById('chats-list').style.display = 'block';
@@ -288,7 +325,6 @@ async function showDirectsList() {
     }
   });
 
-  // Получаем уникальных пользователей с кем уже были переписки
   const msgSnap = await db.collection('messages').get();
   const activeDialogs = new Set();
   
@@ -342,6 +378,9 @@ function renderUsersList(users) {
   });
 }
 
+// ==========================================
+// СООБЩЕНИЯ И ФУНКЦИИ ЧАТА
+// ==========================================
 function setReply(msgId, author, text) {
   replyingToMessage = { id: msgId, author, text };
   document.getElementById('reply-preview-text').innerText = `Ответ на ${author}: ${text.substring(0, 30)}...`;
@@ -511,6 +550,14 @@ function loadMessages() {
 
       messages.sort((a, b) => a.timestamp - b.timestamp);
 
+      // Проверка на свежие сообщения для пуш уведомлений
+      if (messages.length > 0) {
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg.author !== currentUser.username && (Date.now() - lastMsg.timestamp < 3000)) {
+          triggerPushNotification(`Сообщение от ${lastMsg.displayName}`, lastMsg.text || 'Отправил(а) медиафайл');
+        }
+      }
+
       container.innerHTML = '';
       messages.forEach(data => {
         const isMe = data.author === currentUser.username;
@@ -603,21 +650,14 @@ function handleKeyPress(e) {
   if (e.key === 'Enter') sendMessage();
 }
 
-// WebRTC Звонки
+// ==========================================
+// ГРУППОВЫЕ ЗВОНКИ И WEBRTC
+// ==========================================
 async function setupMedia() {
-  localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-  remoteStream = new MediaStream();
-  document.getElementById('local-video').srcObject = localStream;
-  
-  let remoteVideo = document.getElementById('remote-video');
-  if (!remoteVideo) {
-    remoteVideo = document.createElement('video');
-    remoteVideo.id = 'remote-video';
-    remoteVideo.autoplay = true;
-    remoteVideo.playsInline = true;
-    document.getElementById('video-grid').appendChild(remoteVideo);
+  if (!localStream) {
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    document.getElementById('local-video').srcObject = localStream;
   }
-  remoteVideo.srcObject = remoteStream;
 }
 
 function toggleMic() {
@@ -642,53 +682,116 @@ function toggleCam() {
   }
 }
 
-async function startCall() {
+function listenForGroupCalls() {
+  const chatId = getChatId();
+  if (groupCallListener) groupCallListener();
+
+  groupCallListener = db.collection('group_calls').doc(chatId).onSnapshot(doc => {
+    const banner = document.getElementById('group-call-banner');
+    if (doc.exists && doc.data().active) {
+      const participants = doc.data().participants || [];
+      document.getElementById('group-call-count').innerText = `Участников: ${participants.length}`;
+      banner.style.display = 'flex';
+    } else {
+      banner.style.display = 'none';
+    }
+  });
+}
+
+async function startOrJoinGroupCall() {
+  const chatId = getChatId();
   await setupMedia();
   document.getElementById('call-modal').classList.add('active');
 
-  peerConnection = new RTCPeerConnection(servers);
-  localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+  const callRef = db.collection('group_calls').doc(chatId);
+  const doc = await callRef.get();
 
-  peerConnection.ontrack = event => {
-    event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
-  };
+  if (!doc.exists || !doc.data().active) {
+    await callRef.set({
+      active: true,
+      chatId: chatId,
+      startedBy: currentUser.username,
+      participants: [currentUser.username]
+    });
+  } else {
+    await callRef.update({
+      participants: firebase.firestore.FieldValue.arrayUnion(currentUser.username)
+    });
+  }
 
-  const callDoc = db.collection('calls').doc();
-  const offerCandidates = callDoc.collection('offerCandidates');
-  const answerCandidates = callDoc.collection('answerCandidates');
+  activeCallId = chatId;
+  
+  // Уведомляем участника/группу о звонке
+  if (currentChat !== 'global') {
+    db.collection('calls').add({
+      offer: {
+        caller: currentUser.username,
+        target: currentChat,
+        status: 'pending'
+      }
+    });
+  }
 
-  activeCallId = callDoc.id;
-
-  peerConnection.onicecandidate = event => {
-    if (event.candidate) offerCandidates.add(event.candidate.toJSON());
-  };
-
-  const offerDescription = await peerConnection.createOffer();
-  await peerConnection.setLocalDescription(offerDescription);
-
-  const offer = {
-    sdp: offerDescription.sdp,
-    type: offerDescription.type,
-    caller: currentUser.username,
-    target: currentChat,
-    status: 'pending'
-  };
-
-  await callDoc.set({ offer });
-
-  callDoc.onSnapshot(snapshot => {
+  // Слушаем список участников звонка
+  callRef.onSnapshot(async snapshot => {
+    if (!snapshot.exists) return;
     const data = snapshot.data();
-    if (peerConnection && !peerConnection.currentRemoteDescription && data?.answer) {
-      const answerDescription = new RTCSessionDescription(data.answer);
-      peerConnection.setRemoteDescription(answerDescription);
+    if (!data.active) {
+      hangUpLocally();
+      return;
     }
-    if (data?.status === 'ended') hangUpLocally();
+
+    const participants = data.participants || [];
+    participants.forEach(user => {
+      if (user !== currentUser.username && !peerConnections[user]) {
+        connectToUser(user, chatId);
+      }
+    });
+  });
+}
+
+async function connectToUser(targetUser, chatId) {
+  const pc = new RTCPeerConnection(servers);
+  peerConnections[targetUser] = pc;
+
+  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+  pc.ontrack = event => {
+    let remoteVideo = document.getElementById(`video-${targetUser}`);
+    if (!remoteVideo) {
+      remoteVideo = document.createElement('video');
+      remoteVideo.id = `video-${targetUser}`;
+      remoteVideo.autoplay = true;
+      remoteVideo.playsInline = true;
+      document.getElementById('video-grid').appendChild(remoteVideo);
+    }
+    remoteVideo.srcObject = event.streams[0];
+  };
+
+  const signalRef = db.collection('group_calls').doc(chatId)
+    .collection('signals').doc(`${currentUser.username}_${targetUser}`);
+
+  pc.onicecandidate = event => {
+    if (event.candidate) {
+      signalRef.collection('candidates').add(event.candidate.toJSON());
+    }
+  };
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await signalRef.set({ offer: offer, from: currentUser.username, to: targetUser });
+
+  signalRef.onSnapshot(async snap => {
+    const data = snap.data();
+    if (data && data.answer && !pc.currentRemoteDescription) {
+      await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+    }
   });
 
-  answerCandidates.onSnapshot(snapshot => {
-    snapshot.docChanges().forEach(change => {
+  signalRef.collection('candidates').onSnapshot(snap => {
+    snap.docChanges().forEach(change => {
       if (change.type === 'added') {
-        peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+        pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
       }
     });
   });
@@ -702,7 +805,7 @@ function listenForIncomingCalls() {
         if (change.type === 'added') {
           const callData = change.doc.data();
           if (callData.offer && callData.offer.status === 'pending' && callData.offer.caller !== currentUser.username) {
-            activeCallId = change.doc.id;
+            triggerPushNotification('Входящий звонок!', `Звонит ${callData.offer.caller}`);
             document.getElementById('caller-name').innerText = `Звонок от ${callData.offer.caller}`;
             document.getElementById('incoming-call-box').style.display = 'flex';
             ringtone.play();
@@ -715,60 +818,27 @@ function listenForIncomingCalls() {
 async function answerCall() {
   ringtone.stop();
   document.getElementById('incoming-call-box').style.display = 'none';
-
-  await setupMedia();
-  document.getElementById('call-modal').classList.add('active');
-
-  const callDoc = db.collection('calls').doc(activeCallId);
-  const answerCandidates = callDoc.collection('answerCandidates');
-  const offerCandidates = callDoc.collection('offerCandidates');
-
-  peerConnection = new RTCPeerConnection(servers);
-  localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-  peerConnection.ontrack = event => {
-    event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
-  };
-
-  peerConnection.onicecandidate = event => {
-    if (event.candidate) answerCandidates.add(event.candidate.toJSON());
-  };
-
-  const callData = (await callDoc.get()).data();
-  await peerConnection.setRemoteDescription(new RTCSessionDescription(callData.offer));
-
-  const answerDescription = await peerConnection.createAnswer();
-  await peerConnection.setLocalDescription(answerDescription);
-
-  await callDoc.update({
-    answer: { type: answerDescription.type, sdp: answerDescription.sdp },
-    'offer.status': 'accepted'
-  });
-
-  offerCandidates.onSnapshot(snapshot => {
-    snapshot.docChanges().forEach(change => {
-      if (change.type === 'added') {
-        peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data()));
-      }
-    });
-  });
-
-  callDoc.onSnapshot(snapshot => {
-    if (snapshot.data()?.status === 'ended') hangUpLocally();
-  });
+  startOrJoinGroupCall();
 }
 
 function rejectCall() {
   ringtone.stop();
   document.getElementById('incoming-call-box').style.display = 'none';
-  if (activeCallId) {
-    db.collection('calls').doc(activeCallId).update({ 'offer.status': 'rejected' });
-  }
 }
 
-function hangUp() {
+async function hangUpGroupCall() {
   if (activeCallId) {
-    db.collection('calls').doc(activeCallId).update({ status: 'ended' });
+    const callRef = db.collection('group_calls').doc(activeCallId);
+    const doc = await callRef.get();
+
+    if (doc.exists) {
+      const participants = (doc.data().participants || []).filter(u => u !== currentUser.username);
+      if (participants.length === 0) {
+        await callRef.update({ active: false, participants: [] });
+      } else {
+        await callRef.update({ participants: participants });
+      }
+    }
   }
   hangUpLocally();
 }
@@ -778,8 +848,17 @@ function hangUpLocally() {
   document.getElementById('call-modal').classList.remove('active');
   document.getElementById('incoming-call-box').style.display = 'none';
 
-  if (localStream) localStream.getTracks().forEach(track => track.stop());
-  if (peerConnection) peerConnection.close();
-  peerConnection = null;
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+    localStream = null;
+  }
+
+  Object.keys(peerConnections).forEach(user => {
+    peerConnections[user].close();
+    const vid = document.getElementById(`video-${user}`);
+    if (vid) vid.remove();
+  });
+
+  peerConnections = {};
   activeCallId = null;
 }

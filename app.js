@@ -1,3 +1,6 @@
+// ==========================================
+// ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ И СОСТОЯНИЕ
+// ==========================================
 let currentUser = JSON.parse(localStorage.getItem('chat_user')) || null;
 let currentChat = 'global';
 let unsubscribeListener = null;
@@ -7,100 +10,44 @@ let authMode = 'login';
 let replyingToMessage = null;
 let allUsers = [];
 
-// Переменные WebRTC & Групповых звонков
+// WebRTC / Звонки
 let localStream = null;
-let peerConnections = {}; // Map: username -> RTCPeerConnection
+let peerConnections = {};
 let activeCallId = null;
-let isMicOn = true;
-let isCamOn = true;
 
-// Переменные Записи Голосовых
+// Голосовые сообщения
 let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
 
+// Игра в Дурака
+let currentDurakGameId = null;
+let durakUnsubscribe = null;
+
 const sendSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
+const servers = { iceServers: [{ urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }] };
 
-const servers = {
-  iceServers: [
-    { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }
-  ]
-};
-
-async function hashPassword(password) {
-  const msgBuffer = new TextEncoder().encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-const ringtone = {
-  audio: new Audio('https://assets.mixkit.co/active_storage/sfx/1358/1358-preview.mp3'),
-  vibrateInterval: null,
-  play() {
-    this.audio.loop = true;
-    this.audio.currentTime = 0;
-    this.audio.play().catch(e => console.log(e));
-    if ("vibrate" in navigator) {
-      navigator.vibrate([1000, 1000]);
-      this.vibrateInterval = setInterval(() => navigator.vibrate([1000, 1000]), 2000);
-    }
-  },
-  stop() {
-    this.audio.pause();
-    this.audio.currentTime = 0;
-    if (this.vibrateInterval) clearInterval(this.vibrateInterval);
-    if ("vibrate" in navigator) navigator.vibrate(0);
-  }
-};
-
+// Инициализация при загрузке
 document.addEventListener("DOMContentLoaded", () => {
   if (currentUser) {
     showChat();
   }
 });
 
-// ==========================================
-// ПУШ-УВЕДОМЛЕНИЯ
-// ==========================================
-async function initPushNotifications() {
-  if ('serviceWorker' in navigator && 'Notification' in window) {
-    try {
-      const reg = await navigator.serviceWorker.register('sw.js');
-      console.log('Service Worker зареган!', reg);
-      
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        console.log('Разрешение на пуши получено.');
-      }
-    } catch (e) {
-      console.log('Ошибка инициализации пушей:', e);
-    }
-  }
-}
-
-function triggerPushNotification(title, body) {
-  if ('Notification' in window && Notification.permission === 'granted') {
-    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-      navigator.serviceWorker.ready.then(reg => {
-        reg.showNotification(title, {
-          body: body,
-          icon: 'https://cdn-icons-png.flaticon.com/512/906/906377.png'
-        });
-      });
-    } else {
-      new Notification(title, { body: body });
-    }
-  }
+// Хеширование паролей (SHA-256)
+async function hashPassword(password) {
+  const msgBuffer = new TextEncoder().encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // ==========================================
-// АВТОРИЗАЦИЯ И ПРОФИЛЬ
+// 1. АВТОРИЗАЦИЯ И РЕГИСТРАЦИЯ
 // ==========================================
 function toggleAuthMode(mode) {
   authMode = mode;
-  document.getElementById('btn-show-login').style.background = mode === 'login' ? '#5288c1' : '#334455';
-  document.getElementById('btn-show-reg').style.background = mode === 'register' ? '#5288c1' : '#334455';
+  document.getElementById('btn-show-login').classList.toggle('active', mode === 'login');
+  document.getElementById('btn-show-reg').classList.toggle('active', mode === 'register');
   document.getElementById('reg-extra-fields').style.display = mode === 'register' ? 'block' : 'none';
   document.getElementById('auth-submit-btn').innerText = mode === 'login' ? 'Войти' : 'Зарегистрироваться';
 }
@@ -108,7 +55,6 @@ function toggleAuthMode(mode) {
 async function handleAuth() {
   const username = document.getElementById('auth-username').value.trim().toLowerCase();
   const password = document.getElementById('auth-password').value.trim();
-
   if (!username || !password) return alert("Заполни логин и пароль!");
 
   const hashedPassword = await hashPassword(password);
@@ -123,9 +69,7 @@ async function handleAuth() {
     const avatarFile = document.getElementById('reg-avatar-file').files[0];
 
     let avatarData = emojiAvatar || '👤';
-
     if (avatarFile) {
-      if (avatarFile.size > 1 * 1024 * 1024) return alert("Аватарка слишком большая! До 1 МБ.");
       avatarData = await new Promise(resolve => {
         const reader = new FileReader();
         reader.onload = e => resolve(e.target.result);
@@ -133,112 +77,46 @@ async function handleAuth() {
       });
     }
 
-    const userData = {
-      username: username,
-      password: hashedPassword,
-      displayName: displayName,
-      avatar: avatarData,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
-
+    const userData = { username, password: hashedPassword, displayName, avatar: avatarData };
     await userRef.set(userData);
     currentUser = userData;
-    localStorage.setItem('chat_user', JSON.stringify(currentUser));
-    showChat();
-
   } else {
     const doc = await userRef.get();
     if (!doc.exists) return alert("Пользователь не найден!");
-
     const data = doc.data();
     if (data.password !== hashedPassword) return alert("Неверный пароль!");
-
     currentUser = data;
-    localStorage.setItem('chat_user', JSON.stringify(currentUser));
-    showChat();
   }
+
+  localStorage.setItem('chat_user', JSON.stringify(currentUser));
+  showChat();
 }
 
 function logout() {
-  ringtone.stop();
   localStorage.removeItem('chat_user');
   location.reload();
 }
 
+// ==========================================
+// 2. ИНТЕРФЕЙС И НАВИГАЦИЯ
+// ==========================================
+function showChat() {
+  document.getElementById('auth-screen').classList.remove('active');
+  document.getElementById('chat-screen').classList.add('active');
+  document.getElementById('drawer-displayname').innerText = currentUser.displayName;
+  document.getElementById('drawer-username').innerText = `@${currentUser.username}`;
+  renderAvatar(currentUser.avatar, document.getElementById('drawer-avatar-box'));
+  openGlobalChat();
+  listenIncomingCalls();
+}
+
 function renderAvatar(avatarData, targetElement) {
+  if (!targetElement) return;
   if (avatarData && avatarData.startsWith('data:image')) {
     targetElement.innerHTML = `<img src="${avatarData}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`;
   } else {
     targetElement.innerText = avatarData || '👤';
   }
-}
-
-function openProfileModal() {
-  document.getElementById('edit-display-name').value = currentUser.displayName;
-  document.getElementById('profile-modal').classList.add('active');
-}
-
-function closeProfileModal() {
-  document.getElementById('profile-modal').classList.remove('active');
-}
-
-async function saveProfileChanges() {
-  const newName = document.getElementById('edit-display-name').value.trim();
-  const emojiAvatar = document.getElementById('edit-avatar-emoji').value.trim();
-  const avatarFile = document.getElementById('edit-avatar-file').files[0];
-
-  if (!newName) return alert("Никнейм не может быть пустым!");
-
-  let newAvatar = currentUser.avatar;
-
-  if (emojiAvatar) {
-    newAvatar = emojiAvatar;
-  } else if (avatarFile) {
-    if (avatarFile.size > 1 * 1024 * 1024) return alert("Аватарка слишком большая! До 1 МБ.");
-    newAvatar = await new Promise(resolve => {
-      const reader = new FileReader();
-      reader.onload = e => resolve(e.target.result);
-      reader.readAsDataURL(avatarFile);
-    });
-  }
-
-  currentUser.displayName = newName;
-  currentUser.avatar = newAvatar;
-  localStorage.setItem('chat_user', JSON.stringify(currentUser));
-
-  await db.collection('accounts').doc(currentUser.username).update({
-    displayName: newName,
-    avatar: newAvatar
-  });
-
-  updateUserPresence();
-  showChat();
-  closeProfileModal();
-}
-
-function showChat() {
-  document.getElementById('auth-screen').classList.remove('active');
-  document.getElementById('chat-screen').classList.add('active');
-  
-  document.getElementById('drawer-displayname').innerText = currentUser.displayName;
-  document.getElementById('drawer-username').innerText = `@${currentUser.username}`;
-  renderAvatar(currentUser.avatar, document.getElementById('drawer-avatar-box'));
-
-  updateUserPresence();
-  setInterval(updateUserPresence, 30000);
-
-  initPushNotifications();
-  listenForIncomingCalls();
-  openGlobalChat();
-}
-
-function updateUserPresence() {
-  db.collection('users').doc(currentUser.username).set({
-    name: currentUser.username,
-    displayName: currentUser.displayName,
-    avatar: currentUser.avatar,
-    lastSeen: firebase.firestore.FieldValue.serverTimestamp()
-  }, { merge: true });
 }
 
 function toggleMenu() {
@@ -249,278 +127,136 @@ function toggleMenu() {
 function switchTab(tab) {
   document.getElementById('tab-global').classList.toggle('active', tab === 'global');
   document.getElementById('tab-directs').classList.toggle('active', tab === 'directs');
-
-  if (tab === 'global') {
-    openGlobalChat();
-  } else {
-    showDirectsList();
-  }
+  if (tab === 'global') openGlobalChat();
+  else showDirectsList();
 }
 
 function openGlobalChat() {
   currentChat = 'global';
   document.getElementById('chat-title').innerText = "Общий Чат 🌐";
   document.getElementById('chat-subtitle').innerText = "онлайн";
-  document.getElementById('chat-header-avatar').innerText = "🌐";
   document.getElementById('back-btn').style.display = 'none';
-  document.getElementById('call-btn').style.display = 'block';
   document.getElementById('chats-list').style.display = 'none';
   document.getElementById('messages-container').style.display = 'flex';
   document.getElementById('input-area').style.display = 'flex';
   document.getElementById('tabs-bar').style.display = 'flex';
-
+  renderChatHeaderAvatar('🌐');
   loadMessages();
-  listenForTypingStatus();
-  listenForGroupCalls();
+  listenGroupCalls();
+}
+
+function showDirectsList() {
+  document.getElementById('chats-list').style.display = 'block';
+  document.getElementById('messages-container').style.display = 'none';
+  document.getElementById('input-area').style.display = 'none';
+  loadUsersList();
+}
+
+// УМНАЯ ЛИЧКА: уникальный ID комнаты и загрузка только активных диалогов
+function getChatId() {
+  if (currentChat === 'global') return 'global';
+  return [currentUser.username, currentChat].sort().join('_');
+}
+
+async function loadUsersList() {
+  const container = document.getElementById('users-container');
+  container.innerHTML = '<div style="padding:15px; color:var(--text-muted);">Загрузка диалогов...</div>';
+
+  try {
+    const snapshot = await db.collection('messages').get();
+    const activeInteractions = new Set();
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const chatId = data.chatId || 'global';
+
+      if (chatId !== 'global' && chatId.includes(currentUser.username)) {
+        const parts = chatId.split('_');
+        const partner = parts.find(u => u !== currentUser.username);
+        if (partner) {
+          activeInteractions.add(partner);
+        }
+      }
+    });
+
+    if (activeInteractions.size === 0) {
+      container.innerHTML = '<div style="padding:15px; color:var(--text-muted); text-align:center;">У тебя пока нет личных сообщений.<br>Используй поиск, чтобы найти юзера и написать первым!</div>';
+      allUsers = [];
+      return;
+    }
+
+    const accountsSnapshot = await db.collection('accounts').get();
+    allUsers = [];
+
+    accountsSnapshot.forEach(doc => {
+      if (activeInteractions.has(doc.id)) {
+        allUsers.push(doc.data());
+      }
+    });
+
+    renderUsersContainer(allUsers);
+  } catch (err) {
+    console.error("Ошибка загрузки ЛС:", err);
+    container.innerHTML = '<div style="padding:15px; color:red;">Ошибка загрузки диалогов</div>';
+  }
 }
 
 function openDirectChat(targetUser) {
   if (targetUser === currentUser.username) return;
   currentChat = targetUser;
   document.getElementById('back-btn').style.display = 'block';
-  document.getElementById('call-btn').style.display = 'block';
   document.getElementById('chats-list').style.display = 'none';
   document.getElementById('messages-container').style.display = 'flex';
   document.getElementById('input-area').style.display = 'flex';
   document.getElementById('tabs-bar').style.display = 'none';
-
-  db.collection('users').doc(targetUser).onSnapshot(doc => {
-    if (doc.exists) {
-      const data = doc.data();
-      document.getElementById('chat-title').innerText = data.displayName || data.name;
-      renderAvatar(data.avatar, document.getElementById('chat-header-avatar'));
-
-      if (data.lastSeen) {
-        const lastSeenMs = data.lastSeen.toMillis();
-        const diffSec = Math.floor((Date.now() - lastSeenMs) / 1000);
-        document.getElementById('chat-subtitle').innerText = diffSec < 60 ? "онлайн" : `был(а) ${Math.floor(diffSec / 60)} мин. назад`;
-      }
-    }
-  });
+  
+  const targetObj = allUsers.find(u => u.username === targetUser);
+  document.getElementById('chat-title').innerText = targetObj ? targetObj.displayName : targetUser;
+  document.getElementById('chat-subtitle').innerText = `@${targetUser}`;
+  renderChatHeaderAvatar(targetObj ? targetObj.avatar : '👤');
 
   loadMessages();
-  listenForTypingStatus();
-  listenForGroupCalls();
 }
 
-function getChatId() {
-  if (currentChat === 'global') return 'global';
-  if (currentChat.startsWith('group_')) return currentChat;
-  return [currentUser.username, currentChat].sort().join('_');
+function renderChatHeaderAvatar(avatar) {
+  const el = document.getElementById('chat-header-avatar');
+  renderAvatar(avatar, el);
 }
 
-// ==========================================
-// СПИСОК ДИАЛОГОВ И ПОИСК
-// ==========================================
-async function showDirectsList() {
-  document.getElementById('chats-list').style.display = 'block';
-  document.getElementById('messages-container').style.display = 'none';
-  document.getElementById('input-area').style.display = 'none';
+function renderUsersContainer(users) {
+  const container = document.getElementById('users-container');
+  container.innerHTML = '';
+  users.forEach(u => {
+    const item = document.createElement('div');
+    item.className = 'user-item';
+    item.style.cssText = 'display:flex; align-items:center; gap:12px; padding:12px 15px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05);';
+    
+    const avBox = document.createElement('div');
+    avBox.className = 'avatar-box';
+    avBox.style.cssText = 'width:40px; height:40px; border-radius:50%; background:#242f3d; display:flex; align-items:center; justify-content:center; font-size:18px;';
+    renderAvatar(u.avatar, avBox);
 
-  const snapshot = await db.collection('users').get();
-  allUsers = [];
-  snapshot.forEach(doc => {
-    if (doc.id !== currentUser.username) {
-      allUsers.push(doc.data());
-    }
+    const info = document.createElement('div');
+    info.innerHTML = `<div style="font-weight:bold;">${u.displayName}</div><div style="font-size:12px; color:var(--text-muted);">@${u.username}</div>`;
+
+    item.appendChild(avBox);
+    item.appendChild(info);
+    item.onclick = () => openDirectChat(u.username);
+    container.appendChild(item);
   });
-
-  const msgSnap = await db.collection('messages').get();
-  const activeDialogs = new Set();
-  
-  msgSnap.forEach(doc => {
-    const data = doc.data();
-    if (data.chatId && data.chatId.includes(currentUser.username)) {
-      const parts = data.chatId.split('_');
-      const partner = parts.find(p => p !== currentUser.username);
-      if (partner) activeDialogs.add(partner);
-    }
-  });
-
-  renderUsersList(allUsers.filter(u => activeDialogs.has(u.name)));
 }
 
 function filterUsersList() {
-  const query = document.getElementById('user-search-input').value.toLowerCase().trim();
-  if (!query) {
-    showDirectsList();
-    return;
-  }
-  const filtered = allUsers.filter(u => 
-    u.name.toLowerCase().includes(query) || 
-    (u.displayName && u.displayName.toLowerCase().includes(query))
-  );
-  renderUsersList(filtered);
-}
-
-function renderUsersList(users) {
-  const usersBox = document.getElementById('users-container');
-  usersBox.innerHTML = '';
-
-  if (users.length === 0) {
-    usersBox.innerHTML = '<div style="color:#aaa; text-align:center; padding:20px; font-size:13px;">Диалогов нет. Воспользуйся поиском выше!</div>';
-    return;
-  }
-
-  users.forEach(user => {
-    const item = document.createElement('div');
-    item.className = 'chat-item';
-    item.onclick = () => openDirectChat(user.name);
-    item.innerHTML = `
-      <div class="chat-avatar" id="list-avatar-${user.name}"></div>
-      <div class="chat-info">
-        <div class="chat-name">${user.displayName || user.name}</div>
-        <div class="chat-last-msg">@${user.name}</div>
-      </div>
-    `;
-    usersBox.appendChild(item);
-    renderAvatar(user.avatar, document.getElementById(`list-avatar-${user.name}`));
-  });
+  const q = document.getElementById('user-search-input').value.toLowerCase();
+  const filtered = allUsers.filter(u => u.username.toLowerCase().includes(q) || u.displayName.toLowerCase().includes(q));
+  renderUsersContainer(filtered);
 }
 
 // ==========================================
-// СООБЩЕНИЯ И ФУНКЦИИ ЧАТА
+// 3. ЧАТ И СООБЩЕНИЯ (ОБЩИЙ + УМНАЯ ЛС)
 // ==========================================
-function setReply(msgId, author, text) {
-  replyingToMessage = { id: msgId, author, text };
-  document.getElementById('reply-preview-text').innerText = `Ответ на ${author}: ${text.substring(0, 30)}...`;
-  document.getElementById('reply-preview').style.display = 'flex';
-}
-
-function cancelReply() {
-  replyingToMessage = null;
-  document.getElementById('reply-preview').style.display = 'none';
-}
-
-function toggleSearch() {
-  const bar = document.getElementById('search-bar');
-  bar.style.display = bar.style.display === 'none' ? 'block' : 'none';
-}
-
-function searchMessages() {
-  const query = document.getElementById('search-input').value.toLowerCase();
-  const msgs = document.querySelectorAll('.msg');
-  msgs.forEach(m => {
-    const text = m.innerText.toLowerCase();
-    m.style.display = text.includes(query) ? 'flex' : 'none';
-  });
-}
-
-function handleTyping() {
-  const chatId = getChatId();
-  db.collection('typing').doc(`${chatId}_${currentUser.username}`).set({
-    user: currentUser.displayName,
-    chatId: chatId,
-    isTyping: true,
-    timestamp: Date.now()
-  });
-
-  clearTimeout(typingTimeout);
-  typingTimeout = setTimeout(() => {
-    db.collection('typing').doc(`${chatId}_${currentUser.username}`).set({ isTyping: false });
-  }, 2000);
-}
-
-function listenForTypingStatus() {
-  const chatId = getChatId();
-  db.collection('typing').where('chatId', '==', chatId).onSnapshot(snapshot => {
-    let typers = [];
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      if (data.user !== currentUser.displayName && data.isTyping && (Date.now() - data.timestamp < 3000)) {
-        typers.push(data.user);
-      }
-    });
-    const subtitle = document.getElementById('chat-subtitle');
-    if (typers.length > 0) {
-      subtitle.innerText = `${typers.join(', ')} печатает...`;
-      subtitle.style.color = '#5288c1';
-    } else if (currentChat === 'global') {
-      subtitle.innerText = "онлайн";
-      subtitle.style.color = '#6c7883';
-    }
-  });
-}
-
-async function toggleVoiceRecord() {
-  const btn = document.getElementById('voice-btn');
-  if (!isRecording) {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorder = new MediaRecorder(stream);
-      audioChunks = [];
-
-      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = () => {
-          db.collection('messages').add({
-            chatId: getChatId(),
-            audio: reader.result,
-            author: currentUser.username,
-            displayName: currentUser.displayName,
-            avatar: currentUser.avatar,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
-          });
-        };
-      };
-
-      mediaRecorder.start();
-      isRecording = true;
-      btn.innerText = '🔴';
-    } catch (err) {
-      alert("Нет доступа к микрофону!");
-    }
-  } else {
-    mediaRecorder.stop();
-    isRecording = false;
-    btn.innerText = '🎙️';
-  }
-}
-
-function sendImage(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  if (file.size > 2 * 1024 * 1024) return alert("Выбери фото до 2MB.");
-
-  const reader = new FileReader();
-  reader.onload = function(event) {
-    db.collection('messages').add({
-      chatId: getChatId(),
-      image: event.target.result,
-      author: currentUser.username,
-      displayName: currentUser.displayName,
-      avatar: currentUser.avatar,
-      timestamp: firebase.firestore.FieldValue.serverTimestamp()
-    });
-  };
-  reader.readAsDataURL(file);
-}
-
-function addReaction(msgId, emoji) {
-  const msgRef = db.collection('messages').doc(msgId);
-  db.runTransaction(async transaction => {
-    const doc = await transaction.get(msgRef);
-    if (!doc.exists) return;
-    let reactions = doc.data().reactions || {};
-    if (!reactions[emoji]) reactions[emoji] = [];
-
-    if (reactions[emoji].includes(currentUser.username)) {
-      reactions[emoji] = reactions[emoji].filter(u => u !== currentUser.username);
-    } else {
-      reactions[emoji].push(currentUser.username);
-    }
-
-    transaction.update(msgRef, { reactions: reactions });
-  });
-}
-
 function loadMessages() {
   if (unsubscribeListener) unsubscribeListener();
-
   const targetChatId = getChatId();
 
   unsubscribeListener = db.collection('messages')
@@ -530,33 +266,12 @@ function loadMessages() {
 
       snapshot.forEach(doc => {
         const data = doc.data();
-        const msgChatId = data.chatId || 'global';
-
-        if (msgChatId === targetChatId) {
-          messages.push({
-            id: doc.id,
-            author: data.author,
-            displayName: data.displayName || data.author,
-            avatar: data.avatar || '👤',
-            text: data.text || '',
-            image: data.image || null,
-            audio: data.audio || null,
-            replyTo: data.replyTo || null,
-            reactions: data.reactions || {},
-            timestamp: data.timestamp ? data.timestamp.toMillis() : Date.now()
-          });
+        if ((data.chatId || 'global') === targetChatId) {
+          messages.push({ id: doc.id, ...data });
         }
       });
 
-      messages.sort((a, b) => a.timestamp - b.timestamp);
-
-      // Проверка на свежие сообщения для пуш уведомлений
-      if (messages.length > 0) {
-        const lastMsg = messages[messages.length - 1];
-        if (lastMsg.author !== currentUser.username && (Date.now() - lastMsg.timestamp < 3000)) {
-          triggerPushNotification(`Сообщение от ${lastMsg.displayName}`, lastMsg.text || 'Отправил(а) медиафайл');
-        }
-      }
+      messages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
       container.innerHTML = '';
       messages.forEach(data => {
@@ -564,85 +279,69 @@ function loadMessages() {
         const msgDiv = document.createElement('div');
         msgDiv.className = `msg ${isMe ? 'outgoing' : 'incoming'}`;
         
-        let replyHtml = '';
+        let content = '';
+
         if (data.replyTo) {
-          replyHtml = `<div style="background:#1b2734; border-left:2px solid #5288c1; padding:2px 5px; font-size:10px; margin-bottom:4px; opacity:0.8;"><b>${data.replyTo.author}</b>: ${data.replyTo.text}</div>`;
+          content += `<div style="background:rgba(0,0,0,0.2); padding:4px 8px; border-left:3px solid var(--accent-color); margin-bottom:5px; font-size:12px; border-radius:4px;">
+            <b>${data.replyTo.author}:</b> ${data.replyTo.text}
+          </div>`;
         }
 
-        let contentHtml = '';
         if (data.image) {
-          contentHtml = `<img src="${data.image}" style="max-width:100%; border-radius:10px; margin-top:5px;">`;
-        } else if (data.audio) {
-          contentHtml = `<audio controls src="${data.audio}" style="max-width:200px; height:35px;"></audio>`;
-        } else {
-          contentHtml = `<span>${data.text}</span>`;
+          content += `<img src="${data.image}" style="max-width:100%; border-radius:8px; margin-bottom:5px;">`;
+        }
+        if (data.audio) {
+          content += `<audio src="${data.audio}" controls style="max-width:200px; height:35px;"></audio>`;
+        }
+        if (data.text) {
+          content += `<div>${data.text}</div>`;
         }
 
-        let reactionsHtml = '<div style="display:flex; gap:4px; margin-top:4px;">';
-        ['👍', '❤️', '🔥', '💩'].forEach(emoji => {
-          const count = data.reactions[emoji] ? data.reactions[emoji].length : 0;
-          reactionsHtml += `
-            <button onclick="addReaction('${data.id}', '${emoji}')" style="background:#242f3d; border:none; border-radius:8px; padding:2px 5px; color:#fff; font-size:11px; cursor:pointer;">
-              ${emoji} ${count > 0 ? count : ''}
-            </button>
+        if (data.isDurakInvite) {
+          content += `
+            <div style="text-align:center; padding: 8px; background:rgba(0,0,0,0.2); border-radius:8px; margin-top:5px;">
+              <b style="font-size:15px;">🃏 Игра в Дурака (${data.deckSize} карт)</b><br>
+              <button class="btn primary" style="margin-top:8px; width:100%;" onclick="joinDurakGame('${data.gameId}')">Принять вызов</button>
+            </div>
           `;
-        });
-        reactionsHtml += '</div>';
+        }
 
         msgDiv.innerHTML = `
-          ${!isMe ? `<div style="display:flex; align-items:center; gap:5px; margin-bottom:3px;">
-                      <span style="width:20px; height:20px; display:inline-block;" id="avatar-${data.id}"></span>
-                      <div class="msg-author" onclick="openDirectChat('${data.author}')">${data.displayName}</div>
-                     </div>` : ''}
-          ${replyHtml}
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
-            <div style="flex:1;">${contentHtml}</div>
-            <button onclick="setReply('${data.id}', '${data.displayName}', '${data.text || 'Медиа'}')" style="background:none; border:none; color:#5288c1; cursor:pointer; font-size:11px;">↩️</button>
-            ${isMe ? `<button onclick="deleteMessage('${data.id}')" style="background:none; border:none; color:#e53935; cursor:pointer; font-size:11px; opacity:0.6;">🗑️</button>` : ''}
-          </div>
-          ${reactionsHtml}
+          ${!isMe ? `<div class="msg-author" onclick="replyTo('${data.author}', '${data.text || 'медиа'}')">${data.displayName || data.author}</div>` : ''}
+          ${content}
         `;
-        container.appendChild(msgDiv);
 
-        if (!isMe) {
-          const avatarContainer = document.getElementById(`avatar-${data.id}`);
-          if (avatarContainer) renderAvatar(data.avatar, avatarContainer);
-        }
+        msgDiv.ondblclick = () => replyTo(data.displayName || data.author, data.text || 'Медиа-файл');
+        container.appendChild(msgDiv);
       });
-      
+
       container.scrollTop = container.scrollHeight;
     });
 }
 
-function sendMessage() {
+function sendMessage(extraData = {}) {
   const input = document.getElementById('message-input');
   const text = input.value.trim();
-  if (text) {
-    const msgData = {
+
+  if (text || extraData.image || extraData.audio || extraData.isDurakInvite) {
+    const payload = {
       chatId: getChatId(),
       text: text,
       author: currentUser.username,
       displayName: currentUser.displayName,
       avatar: currentUser.avatar,
-      timestamp: firebase.firestore.FieldValue.serverTimestamp()
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      ...extraData
     };
 
     if (replyingToMessage) {
-      msgData.replyTo = replyingToMessage;
+      payload.replyTo = replyingToMessage;
+      cancelReply();
     }
 
-    db.collection('messages').add(msgData);
+    db.collection('messages').add(payload);
     sendSound.play().catch(() => {});
-    
     input.value = '';
-    cancelReply();
-    db.collection('typing').doc(`${getChatId()}_${currentUser.username}`).set({ isTyping: false });
-  }
-}
-
-function deleteMessage(id) {
-  if (confirm("Удалить сообщение?")) {
-    db.collection('messages').doc(id).delete();
   }
 }
 
@@ -650,215 +349,358 @@ function handleKeyPress(e) {
   if (e.key === 'Enter') sendMessage();
 }
 
+function replyTo(author, text) {
+  replyingToMessage = { author, text };
+  document.getElementById('reply-preview-text').innerText = `Ответ на ${author}: ${text}`;
+  document.getElementById('reply-preview').style.display = 'flex';
+}
+
+function cancelReply() {
+  replyingToMessage = null;
+  document.getElementById('reply-preview').style.display = 'none';
+}
+
+function sendImage(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    sendMessage({ image: ev.target.result });
+  };
+  reader.readAsDataURL(file);
+}
+
+// Поиск по сообщениям
+function toggleSearch() {
+  const bar = document.getElementById('search-bar');
+  bar.style.display = bar.style.display === 'none' ? 'block' : 'none';
+}
+
+function searchMessages() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  const msgs = document.querySelectorAll('.messages-container .msg');
+  msgs.forEach(m => {
+    const t = m.innerText.toLowerCase();
+    m.style.display = t.includes(q) ? 'block' : 'none';
+  });
+}
+
+// Индикатор печати
+function handleTyping() {
+  db.collection('typing').doc(getChatId()).set({
+    [currentUser.username]: true
+  }, { merge: true });
+
+  clearTimeout(typingTimeout);
+  typingTimeout = setTimeout(() => {
+    db.collection('typing').doc(getChatId()).set({
+      [currentUser.username]: false
+    }, { merge: true });
+  }, 2000);
+}
+
 // ==========================================
-// ГРУППОВЫЕ ЗВОНКИ И WEBRTC
+// 4. ГОЛОСОВЫЕ СООБЩЕНИЯ
 // ==========================================
-async function setupMedia() {
-  if (!localStream) {
-    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    document.getElementById('local-video').srcObject = localStream;
+async function toggleVoiceRecord() {
+  const voiceBtn = document.getElementById('voice-btn');
+  if (!isRecording) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = [];
+      
+      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onload = ev => sendMessage({ audio: ev.target.result });
+        reader.readAsDataURL(audioBlob);
+      };
+
+      mediaRecorder.start();
+      isRecording = true;
+      voiceBtn.innerText = '🔴';
+    } catch (e) {
+      alert("Нет доступа к микрофону!");
+    }
+  } else {
+    mediaRecorder.stop();
+    isRecording = false;
+    voiceBtn.innerText = '🎙️';
   }
+}
+
+// ==========================================
+// 5. РЕДАКТИРОВАНИЕ ПРОФИЛЯ
+// ==========================================
+function openProfileModal() {
+  document.getElementById('edit-display-name').value = currentUser.displayName;
+  document.getElementById('edit-avatar-emoji').value = currentUser.avatar.startsWith('data:') ? '' : currentUser.avatar;
+  document.getElementById('profile-modal').classList.add('active');
+  toggleMenu();
+}
+
+function closeProfileModal() {
+  document.getElementById('profile-modal').classList.remove('active');
+}
+
+async function saveProfileChanges() {
+  const newName = document.getElementById('edit-display-name').value.trim() || currentUser.displayName;
+  const newEmoji = document.getElementById('edit-avatar-emoji').value.trim();
+  const newFile = document.getElementById('edit-avatar-file').files[0];
+
+  let newAvatar = currentUser.avatar;
+  if (newEmoji) newAvatar = newEmoji;
+  if (newFile) {
+    newAvatar = await new Promise(res => {
+      const r = new FileReader();
+      r.onload = ev => res(ev.target.result);
+      r.readAsDataURL(newFile);
+    });
+  }
+
+  currentUser.displayName = newName;
+  currentUser.avatar = newAvatar;
+
+  await db.collection('accounts').doc(currentUser.username).update({
+    displayName: newName,
+    avatar: newAvatar
+  });
+
+  localStorage.setItem('chat_user', JSON.stringify(currentUser));
+  document.getElementById('drawer-displayname').innerText = newName;
+  renderAvatar(newAvatar, document.getElementById('drawer-avatar-box'));
+  closeProfileModal();
+}
+
+// ==========================================
+// 6. WebRTC И ЗВОНКИ
+// ==========================================
+function listenIncomingCalls() {
+  db.collection('calls').where('target', '==', currentUser.username)
+    .where('status', '==', 'calling')
+    .onSnapshot(snap => {
+      snap.forEach(doc => {
+        const call = doc.data();
+        activeCallId = doc.id;
+        document.getElementById('caller-name').innerText = `Звонит: ${call.callerDisplayName || call.caller}`;
+        document.getElementById('incoming-call-box').style.display = 'flex';
+      });
+    });
+}
+
+async function startOrJoinGroupCall() {
+  document.getElementById('call-modal').classList.add('active');
+  localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  document.getElementById('local-video').srcObject = localStream;
 }
 
 function toggleMic() {
   if (localStream) {
     const audioTrack = localStream.getAudioTracks()[0];
-    if (audioTrack) {
-      isMicOn = !isMicOn;
-      audioTrack.enabled = isMicOn;
-      document.getElementById('mic-btn').innerText = isMicOn ? '🎤' : '🔇';
-    }
+    audioTrack.enabled = !audioTrack.enabled;
+    document.getElementById('mic-btn').innerText = audioTrack.enabled ? '🎤' : '🔇';
   }
 }
 
 function toggleCam() {
   if (localStream) {
     const videoTrack = localStream.getVideoTracks()[0];
-    if (videoTrack) {
-      isCamOn = !isCamOn;
-      videoTrack.enabled = isCamOn;
-      document.getElementById('cam-btn').innerText = isCamOn ? '📷' : '🚫';
-    }
+    videoTrack.enabled = !videoTrack.enabled;
+    document.getElementById('cam-btn').innerText = videoTrack.enabled ? '📷' : '🚫';
   }
 }
 
-function listenForGroupCalls() {
-  const chatId = getChatId();
-  if (groupCallListener) groupCallListener();
-
-  groupCallListener = db.collection('group_calls').doc(chatId).onSnapshot(doc => {
-    const banner = document.getElementById('group-call-banner');
-    if (doc.exists && doc.data().active) {
-      const participants = doc.data().participants || [];
-      document.getElementById('group-call-count').innerText = `Участников: ${participants.length}`;
-      banner.style.display = 'flex';
-    } else {
-      banner.style.display = 'none';
-    }
-  });
-}
-
-async function startOrJoinGroupCall() {
-  const chatId = getChatId();
-  await setupMedia();
-  document.getElementById('call-modal').classList.add('active');
-
-  const callRef = db.collection('group_calls').doc(chatId);
-  const doc = await callRef.get();
-
-  if (!doc.exists || !doc.data().active) {
-    await callRef.set({
-      active: true,
-      chatId: chatId,
-      startedBy: currentUser.username,
-      participants: [currentUser.username]
-    });
-  } else {
-    await callRef.update({
-      participants: firebase.firestore.FieldValue.arrayUnion(currentUser.username)
-    });
+function hangUpGroupCall() {
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
   }
-
-  activeCallId = chatId;
-  
-  // Уведомляем участника/группу о звонке
-  if (currentChat !== 'global') {
-    db.collection('calls').add({
-      offer: {
-        caller: currentUser.username,
-        target: currentChat,
-        status: 'pending'
-      }
-    });
-  }
-
-  // Слушаем список участников звонка
-  callRef.onSnapshot(async snapshot => {
-    if (!snapshot.exists) return;
-    const data = snapshot.data();
-    if (!data.active) {
-      hangUpLocally();
-      return;
-    }
-
-    const participants = data.participants || [];
-    participants.forEach(user => {
-      if (user !== currentUser.username && !peerConnections[user]) {
-        connectToUser(user, chatId);
-      }
-    });
-  });
+  document.getElementById('call-modal').classList.remove('active');
 }
 
-async function connectToUser(targetUser, chatId) {
-  const pc = new RTCPeerConnection(servers);
-  peerConnections[targetUser] = pc;
-
-  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-
-  pc.ontrack = event => {
-    let remoteVideo = document.getElementById(`video-${targetUser}`);
-    if (!remoteVideo) {
-      remoteVideo = document.createElement('video');
-      remoteVideo.id = `video-${targetUser}`;
-      remoteVideo.autoplay = true;
-      remoteVideo.playsInline = true;
-      document.getElementById('video-grid').appendChild(remoteVideo);
-    }
-    remoteVideo.srcObject = event.streams[0];
-  };
-
-  const signalRef = db.collection('group_calls').doc(chatId)
-    .collection('signals').doc(`${currentUser.username}_${targetUser}`);
-
-  pc.onicecandidate = event => {
-    if (event.candidate) {
-      signalRef.collection('candidates').add(event.candidate.toJSON());
-    }
-  };
-
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  await signalRef.set({ offer: offer, from: currentUser.username, to: targetUser });
-
-  signalRef.onSnapshot(async snap => {
-    const data = snap.data();
-    if (data && data.answer && !pc.currentRemoteDescription) {
-      await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-    }
-  });
-
-  signalRef.collection('candidates').onSnapshot(snap => {
-    snap.docChanges().forEach(change => {
-      if (change.type === 'added') {
-        pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
-      }
-    });
-  });
-}
-
-function listenForIncomingCalls() {
-  db.collection('calls')
-    .where('offer.target', 'in', [currentUser.username, 'global'])
-    .onSnapshot(snapshot => {
-      snapshot.docChanges().forEach(async change => {
-        if (change.type === 'added') {
-          const callData = change.doc.data();
-          if (callData.offer && callData.offer.status === 'pending' && callData.offer.caller !== currentUser.username) {
-            triggerPushNotification('Входящий звонок!', `Звонит ${callData.offer.caller}`);
-            document.getElementById('caller-name').innerText = `Звонок от ${callData.offer.caller}`;
-            document.getElementById('incoming-call-box').style.display = 'flex';
-            ringtone.play();
-          }
-        }
-      });
-    });
-}
-
-async function answerCall() {
-  ringtone.stop();
+function answerCall() {
   document.getElementById('incoming-call-box').style.display = 'none';
   startOrJoinGroupCall();
 }
 
 function rejectCall() {
-  ringtone.stop();
-  document.getElementById('incoming-call-box').style.display = 'none';
-}
-
-async function hangUpGroupCall() {
   if (activeCallId) {
-    const callRef = db.collection('group_calls').doc(activeCallId);
-    const doc = await callRef.get();
-
-    if (doc.exists) {
-      const participants = (doc.data().participants || []).filter(u => u !== currentUser.username);
-      if (participants.length === 0) {
-        await callRef.update({ active: false, participants: [] });
-      } else {
-        await callRef.update({ participants: participants });
-      }
-    }
+    db.collection('calls').doc(activeCallId).update({ status: 'rejected' });
   }
-  hangUpLocally();
+  document.getElementById('incoming-call-box').style.display = 'none';
 }
 
-function hangUpLocally() {
-  ringtone.stop();
-  document.getElementById('call-modal').classList.remove('active');
-  document.getElementById('incoming-call-box').style.display = 'none';
+function listenGroupCalls() {}
 
-  if (localStream) {
-    localStream.getTracks().forEach(track => track.stop());
-    localStream = null;
+// ==========================================
+// 7. ИГРА В ДУРАКА (54 / 108 карт)
+// ==========================================
+function openDurakInviteModal() {
+  if (currentChat === 'global') {
+    return alert("Выберите соперника в личных сообщениях, чтобы пригласить его в игру!");
   }
+  document.getElementById('durak-modal').classList.add('active');
+  document.getElementById('durak-setup').style.display = 'block';
+  document.getElementById('durak-table').style.display = 'none';
+}
 
-  Object.keys(peerConnections).forEach(user => {
-    peerConnections[user].close();
-    const vid = document.getElementById(`video-${user}`);
-    if (vid) vid.remove();
+function closeDurakModal() {
+  document.getElementById('durak-modal').classList.remove('active');
+  if (durakUnsubscribe) durakUnsubscribe();
+}
+
+async function createDurakGame() {
+  const deckSize = parseInt(document.querySelector('input[name="deck-size"]:checked').value);
+  const deck = generateDeck(deckSize);
+  const trumpCard = deck.pop();
+
+  const p1Hand = deck.splice(0, 6);
+  const p2Hand = deck.splice(0, 6);
+
+  const gameRef = await db.collection('durak_games').add({
+    player1: currentUser.username,
+    player2: currentChat,
+    deck: deck,
+    trump: trumpCard,
+    p1Hand: p1Hand,
+    p2Hand: p2Hand,
+    board: [],
+    attacker: currentUser.username,
+    defender: currentChat,
+    status: 'active'
   });
 
-  peerConnections = {};
-  activeCallId = null;
+  sendMessage({ isDurakInvite: true, gameId: gameRef.id, deckSize: deckSize });
+  alert("Приглашение отправлено!");
+  closeDurakModal();
+}
+
+function generateDeck(size) {
+  const suits = ['♠', '♥', '♦', '♣'];
+  const values = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+  let deck = [];
+
+  const copies = size === 108 ? 2 : 1;
+  for (let c = 0; c < copies; c++) {
+    for (let s of suits) {
+      for (let v of values) {
+        deck.push({ suit: s, value: v, isRed: s === '♥' || s === '♦' });
+      }
+    }
+    deck.push({ suit: '🃏', value: 'JOKER', isRed: true });
+    deck.push({ suit: '🃏', value: 'JOKER', isRed: false });
+  }
+
+  return deck.sort(() => Math.random() - 0.5);
+}
+
+function joinDurakGame(gameId) {
+  currentDurakGameId = gameId;
+  document.getElementById('durak-modal').classList.add('active');
+  document.getElementById('durak-setup').style.display = 'none';
+  document.getElementById('durak-table').style.display = 'flex';
+
+  listenDurakGame();
+}
+
+function listenDurakGame() {
+  if (durakUnsubscribe) durakUnsubscribe();
+
+  durakUnsubscribe = db.collection('durak_games').doc(currentDurakGameId).onSnapshot(doc => {
+    if (!doc.exists) return;
+    const game = doc.data();
+    renderDurakBoard(game);
+  });
+}
+
+function renderDurakBoard(game) {
+  const isP1 = currentUser.username === game.player1;
+  const myHand = isP1 ? game.p1Hand : game.p2Hand;
+  const oppHand = isP1 ? game.p2Hand : game.p1Hand;
+
+  document.getElementById('durak-trump-info').innerText = `Козырь: ${game.trump.value} ${game.trump.suit}`;
+  document.getElementById('durak-deck-count').innerText = `Карт в колоде: ${game.deck.length}`;
+  document.getElementById('durak-turn-info').innerText = `Ходит: @${game.attacker}`;
+
+  const oppBox = document.getElementById('durak-opponent-hand');
+  oppBox.innerHTML = '';
+  oppHand.forEach(() => {
+    const card = document.createElement('div');
+    card.className = 'card back';
+    oppBox.appendChild(card);
+  });
+
+  const myBox = document.getElementById('durak-my-hand');
+  myBox.innerHTML = '';
+  myHand.forEach((cardData, idx) => {
+    const card = createCardElement(cardData);
+    card.onclick = () => playCard(cardData, idx, game);
+    myBox.appendChild(card);
+  });
+
+  const boardBox = document.getElementById('durak-board');
+  boardBox.innerHTML = '';
+  game.board.forEach(pair => {
+    const pairDiv = document.createElement('div');
+    pairDiv.className = 'card-pair';
+    pairDiv.appendChild(createCardElement(pair.attack));
+    if (pair.defend) {
+      const def = createCardElement(pair.defend);
+      def.classList.add('defend-card');
+      pairDiv.appendChild(def);
+    }
+    boardBox.appendChild(pairDiv);
+  });
+}
+
+function createCardElement(data) {
+  const card = document.createElement('div');
+  card.className = `card ${data.isRed ? 'red' : ''}`;
+  card.innerHTML = `<div>${data.value}</div><div style="font-size:20px; text-align:center;">${data.suit}</div>`;
+  return card;
+}
+
+async function playCard(card, index, game) {
+  const isAttacker = currentUser.username === game.attacker;
+  const isP1 = currentUser.username === game.player1;
+
+  if (isAttacker) {
+    game.board.push({ attack: card, defend: null });
+    if (isP1) game.p1Hand.splice(index, 1);
+    else game.p2Hand.splice(index, 1);
+  } else {
+    const undefIndex = game.board.findIndex(p => !p.defend);
+    if (undefIndex !== -1) {
+      game.board[undefIndex].defend = card;
+      if (isP1) game.p1Hand.splice(index, 1);
+      else game.p2Hand.splice(index, 1);
+    }
+  }
+
+  await db.collection('durak_games').doc(currentDurakGameId).update(game);
+}
+
+async function handleDurakAction() {
+  const gameRef = db.collection('durak_games').doc(currentDurakGameId);
+  const doc = await gameRef.get();
+  let game = doc.data();
+
+  const isAttacker = currentUser.username === game.attacker;
+
+  if (isAttacker) {
+    game.board = [];
+    const temp = game.attacker;
+    game.attacker = game.defender;
+    game.defender = temp;
+  } else {
+    const isP1 = currentUser.username === game.player1;
+    game.board.forEach(p => {
+      if (p.attack) (isP1 ? game.p1Hand : game.p2Hand).push(p.attack);
+      if (p.defend) (isP1 ? game.p1Hand : game.p2Hand).push(p.defend);
+    });
+    game.board = [];
+  }
+
+  await gameRef.update(game);
 }

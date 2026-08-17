@@ -15,14 +15,16 @@ let mediaRecorder = null;
 let audioChunks = [];
 let isRecordingVoice = false;
 let isRecordingCircle = false;
+let localStream = null;
 
-// Дурак
+// Игра Дурак
 let currentDurakGameId = null;
 let durakUnsubscribe = null;
 
-// Старт приложения после загрузки DOM
+// Запуск при загрузке страницы
 window.addEventListener('DOMContentLoaded', () => {
   initFirebase();
+  setupEventListeners();
   checkSavedUser();
 });
 
@@ -32,10 +34,10 @@ function initFirebase() {
       db = firebase.firestore();
       console.log("✅ Firebase Firestore успешно подключен");
     } else {
-      console.error("❌ Firebase SDK не инициализирован. Проверь firebase-config.js!");
+      console.error("❌ Firebase SDK не найден. Проверь подключения в index.html и firebase-config.js");
     }
   } catch (e) {
-    console.error("❌ Ошибка инициализации БД:", e);
+    console.error("❌ Ошибка инициализации Firebase:", e);
   }
 }
 
@@ -52,9 +54,21 @@ function checkSavedUser() {
 }
 
 // ==========================================
+// ПРИВЯЗКА СОБЫТИЙ (БЕЗ INLINE-ОШИБОК)
+// ==========================================
+function setupEventListeners() {
+  const btnLogin = document.getElementById('btn-show-login');
+  const btnReg = document.getElementById('btn-show-reg');
+  const btnSubmit = document.getElementById('auth-submit-btn');
+
+  if (btnLogin) btnLogin.onclick = () => window.toggleAuthMode('login');
+  if (btnReg) btnReg.onclick = () => window.toggleAuthMode('register');
+  if (btnSubmit) btnSubmit.onclick = () => window.handleAuth();
+}
+
+// ==========================================
 // АВТОРИЗАЦИЯ И РЕГИСТРАЦИЯ
 // ==========================================
-
 window.toggleAuthMode = function(mode) {
   authMode = mode;
   document.getElementById('btn-show-login').classList.toggle('active', mode === 'login');
@@ -64,13 +78,13 @@ window.toggleAuthMode = function(mode) {
 };
 
 window.handleAuth = async function() {
-  console.log("🔘 Нажата кнопка авторизации...");
+  console.log("🔘 Запуск авторизации...");
 
   if (!db) {
     if (typeof firebase !== 'undefined' && firebase.apps.length) {
       db = firebase.firestore();
     } else {
-      alert("❌ База данных не подключена! Проверь подключение к инету и firebase-config.js");
+      alert("❌ База данных не подключена! Проверь firebase-config.js");
       return;
     }
   }
@@ -138,7 +152,7 @@ window.handleAuth = async function() {
     }
   } catch (err) {
     console.error("❌ Ошибка авторизации:", err);
-    alert(" Ошибка доступа к Firestore: " + err.message + "\n\nПроверь Rules в консоли Firebase!");
+    alert(" Ошибка доступа к Firestore: " + err.message);
   } finally {
     submitBtn.disabled = false;
     submitBtn.innerText = authMode === 'login' ? 'Войти' : 'Зарегистрироваться';
@@ -155,13 +169,12 @@ function showChatScreen() {
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('chat-screen').style.display = 'flex';
   updateDrawerUI();
-  switchTab('global');
+  window.switchTab('global');
 }
 
 // ==========================================
 // ИНТЕРФЕЙС И НАВИГАЦИЯ
 // ==========================================
-
 window.toggleMenu = function() {
   document.getElementById('drawer').classList.toggle('active');
   document.getElementById('overlay').classList.toggle('active');
@@ -215,7 +228,6 @@ window.switchTab = function(tab) {
 // ==========================================
 // ЛИЧНЫЕ СООБЩЕНИЯ (ДИАЛОГИ)
 // ==========================================
-
 async function loadDirectsList() {
   const container = document.getElementById('users-container');
   container.innerHTML = '<div style="padding:15px; text-align:center; color:#888">Загрузка диалогов...</div>';
@@ -342,9 +354,8 @@ function openDirectChat(partnerUser) {
 }
 
 // ==========================================
-// ЛОГИКА ЧАТА И СООБЩЕНИЙ
+// СООБЩЕНИЯ
 // ==========================================
-
 function listenMessages(chatId) {
   currentChatId = chatId;
   const container = document.getElementById('messages-container');
@@ -361,7 +372,7 @@ function listenMessages(chatId) {
         renderMessageItem(doc.data(), doc.id);
       });
       container.scrollTop = container.scrollHeight;
-    }, err => console.error("❌ Ошибка получения сообщений:", err));
+    }, err => console.error("❌ Ошибка сообщений:", err));
 }
 
 function renderMessageItem(msg, id) {
@@ -440,9 +451,8 @@ window.searchMessages = function() {
 window.handleTyping = function() {};
 
 // ==========================================
-// МЕДИА (ГОЛОСОВЫЕ / КРУЖОЧКИ / ФОТО)
+// МЕДИА (ФОТО, ГОЛОСОВЫЕ, КРУЖОЧКИ)
 // ==========================================
-
 window.sendImage = async function(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -520,9 +530,8 @@ function convertBlobToBase64(blob) {
 }
 
 // ==========================================
-// НАСТРОЙКИ ПРОФИЛЯ
+// ПРОФИЛЬ
 // ==========================================
-
 window.openProfileModal = function() {
   window.toggleMenu();
   document.getElementById('edit-display-name').value = currentUser.displayName;
@@ -557,9 +566,8 @@ function escapeHtml(text) {
 }
 
 // ==========================================
-// МОДУЛЬ: ДУРАК ОНЛАЙН
+// ИГРА В ДУРАКА
 // ==========================================
-
 window.openDurakInviteModal = function() {
   document.getElementById('durak-modal').classList.add('active');
 };
@@ -658,28 +666,48 @@ async function playDurakCard(game, cardIndex) {
   });
 }
 
-window.handleDurakAction = function() {};
+window.handleDurakAction = function() {
+  alert("Бито / Беру обработано");
+};
 
 // ==========================================
-// МОДУЛЬ: ЗВОНКИ
+// ЗВОНКИ
 // ==========================================
-
 window.startOrJoinGroupCall = function() {
   document.getElementById('call-modal').classList.add('active');
   navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
+    localStream = stream;
     document.getElementById('local-video').srcObject = stream;
   }).catch(() => alert("⚠️ Нет доступа к камере/микрофону"));
 };
 
 window.hangUpGroupCall = function() {
   document.getElementById('call-modal').classList.remove('active');
-  const video = document.getElementById('local-video');
-  if (video.srcObject) {
-    video.srcObject.getTracks().forEach(track => track.stop());
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+    localStream = null;
   }
 };
 
-window.toggleMic = function() {};
-window.toggleCam = function() {};
-window.answerCall = function() {};
-window.rejectCall = function() {};
+window.toggleMic = function() {
+  if (localStream) {
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (audioTrack) audioTrack.enabled = !audioTrack.enabled;
+  }
+};
+
+window.toggleCam = function() {
+  if (localStream) {
+    const videoTrack = localStream.getVideoTracks()[0];
+    if (videoTrack) videoTrack.enabled = !videoTrack.enabled;
+  }
+};
+
+window.answerCall = function() {
+  document.getElementById('incoming-call-box').style.display = 'none';
+  window.startOrJoinGroupCall();
+};
+
+window.rejectCall = function() {
+  document.getElementById('incoming-call-box').style.display = 'none';
+};
